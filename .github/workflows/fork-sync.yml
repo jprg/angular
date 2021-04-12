@@ -5,7 +5,7 @@ on:
   schedule:
      # actually, ~5 minutes is the highest
      # effective frequency you will get
-    - cron:  '0 0 * * 0'
+    - cron:  '* * * * *'
 jobs:
   merge:
     runs-on: ubuntu-latest
@@ -25,7 +25,7 @@ jobs:
           git remote add upstream https://github.com/angular/angular.git
           git fetch upstream
 
-          git checkout --track origin/master
+          # git checkout --track origin/master
           # git merge --no-edit upstream/master
           # git push origin master
 
