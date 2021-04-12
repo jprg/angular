@@ -16,7 +16,7 @@ jobs:
           # git config --global user.name 'your-name'
           # git config --global user.email 'your-username@users.noreply.github.com'
 
-          # "git checkout master" is unnecessary, already here by default
+          git checkout master
           git pull --unshallow  # this option is very important, you would get
                                 # complains about unrelated histories without it.
                                 # (but actions/checkout@v2 can also be instructed
@@ -25,8 +25,8 @@ jobs:
           git remote add upstream https://github.com/angular/angular.git
           git fetch upstream
 
-          git checkout origin master
-          git merge --no-edit upstream/master
-          git push origin master
+          git checkout --track origin/master
+          # git merge --no-edit upstream/master
+          # git push origin master
 
           
