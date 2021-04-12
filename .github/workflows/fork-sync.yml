@@ -25,7 +25,7 @@ jobs:
           git remote add upstream https://github.com/angular/angular.git
           git fetch upstream
 
-          git checkout master
+          git checkout origin master
           git merge --no-edit upstream/master
           git push origin master
 
