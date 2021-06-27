@@ -1955,6 +1955,36 @@ describe('acceptance integration tests', () => {
     expect(content).toContain(`<span title="Your last name is Baggins">`);
   });
 
+  it('should handle safe keyed reads inside templates', () => {
+    @Component({
+      template: `
+      <span [title]="'Your last name is ' + (unknownNames?.[0] || 'unknown')">
+        Hello, {{ knownNames?.[0]?.[1] }}!
+        You are a Balrog: {{ species?.[0]?.[1]?.[2]?.[3]?.[4]?.[5] || 'unknown' }}
+        You are an Elf: {{ speciesMap?.[keys?.[0] ?? 'key'] }}
+        You are an Orc: {{ speciesMap?.['key'] }}
+      </span>
+    `
+    })
+    class App {
+      unknownNames: string[]|null = null;
+      knownNames: string[][] = [['Frodo', 'Bilbo']];
+      species = null;
+      keys = null;
+      speciesMap: Record<string, string> = {key: 'unknown'};
+    }
+
+    TestBed.configureTestingModule({declarations: [App]});
+    const fixture = TestBed.createComponent(App);
+    fixture.detectChanges();
+    const content = fixture.nativeElement.innerHTML;
+
+    expect(content).toContain('Hello, Bilbo!');
+    expect(content).toContain('You are a Balrog: unknown');
+    expect(content).toContain('You are an Elf: unknown');
+    expect(content).toContain(`<span title="Your last name is unknown">`);
+  });
+
   it('should handle nullish coalescing inside host bindings', () => {
     const logs: string[] = [];
 
@@ -1988,6 +2018,47 @@ describe('acceptance integration tests', () => {
 
     expect(button.getAttribute('first-name')).toBe('Hello, Frodo!');
     expect(logs).toEqual(['Baggins']);
+  });
+
+  it('should render SVG nodes placed inside ng-template', () => {
+    @Component({
+      template: `
+        <svg>
+          <ng-template [ngIf]="condition">
+            <text>Hello</text>
+          </ng-template>
+        </svg>
+      `,
+    })
+    class MyComp {
+      condition = true;
+    }
+
+    TestBed.configureTestingModule({declarations: [MyComp], imports: [CommonModule]});
+    const fixture = TestBed.createComponent(MyComp);
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.innerHTML).toContain('<text>Hello</text>');
+  });
+
+  it('should handle shorthand property declarations in templates', () => {
+    @Directive({selector: '[my-dir]'})
+    class Dir {
+      @Input('my-dir') value: any;
+    }
+
+    @Component({template: `<div [my-dir]="{a, b: 2, someProp}"></div>`})
+    class App {
+      @ViewChild(Dir) directive!: Dir;
+      a = 1;
+      someProp = 3;
+    }
+
+    TestBed.configureTestingModule({declarations: [App, Dir]});
+    const fixture = TestBed.createComponent(App);
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.directive.value).toEqual({a: 1, b: 2, someProp: 3});
   });
 
   describe('tView.firstUpdatePass', () => {

@@ -7,22 +7,11 @@
  */
 
 import {ListChoiceOptions, prompt} from 'inquirer';
-import * as semver from 'semver';
 
 import {ActiveReleaseTrains} from '../../versioning/active-release-trains';
 import {semverInc} from '../../versioning/inc-semver';
-import {fetchLongTermSupportBranchesFromNpm} from '../../versioning/long-term-support';
+import {fetchLongTermSupportBranchesFromNpm, LtsBranch} from '../../versioning/long-term-support';
 import {ReleaseAction} from '../actions';
-
-/** Interface describing an LTS version branch. */
-interface LtsBranch {
-  /** Name of the branch. */
-  name: string;
-  /** Most recent version for the given LTS branch. */
-  version: semver.SemVer;
-  /** NPM dist tag for the LTS version. */
-  npmDistTag: string;
-}
 
 /**
  * Release action that cuts a new patch release for an active release-train in the long-term
@@ -41,11 +30,12 @@ export class CutLongTermSupportPatchAction extends ReleaseAction {
   async perform() {
     const ltsBranch = await this._promptForTargetLtsBranch();
     const newVersion = semverInc(ltsBranch.version, 'patch');
-    const {id} = await this.checkoutBranchAndStageVersion(newVersion, ltsBranch.name);
+    const {pullRequest: {id}, releaseNotes} =
+        await this.checkoutBranchAndStageVersion(newVersion, ltsBranch.name);
 
     await this.waitForPullRequestToBeMerged(id);
-    await this.buildAndPublish(newVersion, ltsBranch.name, ltsBranch.npmDistTag);
-    await this.cherryPickChangelogIntoNextBranch(newVersion, ltsBranch.name);
+    await this.buildAndPublish(releaseNotes, ltsBranch.name, ltsBranch.npmDistTag);
+    await this.cherryPickChangelogIntoNextBranch(releaseNotes, ltsBranch.name);
   }
 
   /** Prompts the user to select an LTS branch for which a patch should but cut. */

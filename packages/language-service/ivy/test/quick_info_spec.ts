@@ -151,6 +151,15 @@ describe('quick info', () => {
         expect(toText(documentation)).toBe('This Component provides the `test-comp` selector.');
       });
 
+      it('should work for components with bound attributes', () => {
+        const {documentation} = expectQuickInfo({
+          templateOverride: `<t¦est-comp [attr.id]="'1' + '2'" [attr.name]="'myName'"></test-comp>`,
+          expectedSpanText: `<test-comp [attr.id]="'1' + '2'" [attr.name]="'myName'"></test-comp>`,
+          expectedDisplayString: '(component) AppModule.TestComponent'
+        });
+        expect(toText(documentation)).toBe('This Component provides the `test-comp` selector.');
+      });
+
       it('should work for structural directives', () => {
         const {documentation} = expectQuickInfo({
           templateOverride: `<div *¦ngFor="let item of heroes"></div>`,
@@ -348,6 +357,20 @@ describe('quick info', () => {
           expectedDisplayString: '(variable) name: { readonly name: "name"; }'
         });
       });
+
+      it('should work for safe keyed reads', () => {
+        expectQuickInfo({
+          templateOverride: `<div>{{constNames?.[0¦]}}</div>`,
+          expectedSpanText: '0',
+          expectedDisplayString: '(property) 0: {\n    readonly name: "name";\n}'
+        });
+
+        expectQuickInfo({
+          templateOverride: `<div>{{constNames?.[0]?.na¦me}}</div>`,
+          expectedSpanText: 'constNames?.[0]?.name',
+          expectedDisplayString: '(property) name: "name"'
+        });
+      });
     });
 
     describe('pipes', () => {
@@ -477,6 +500,48 @@ describe('quick info', () => {
         expect(documentation).toBe('This is the title of the `AppCmp` Component.');
       });
     });
+
+    it('should work for object literal with shorthand property declarations', () => {
+      initMockFileSystem('Native');
+      env = LanguageServiceTestEnv.setup();
+      project = env.addProject(
+          'test', {
+            'app.ts': `
+            import {Component, NgModule} from '@angular/core';
+            import {CommonModule} from '@angular/common';
+
+            @Component({
+              selector: 'some-cmp',
+              templateUrl: './app.html',
+            })
+            export class SomeCmp {
+              val1 = 'one';
+              val2 = 2;
+
+              doSomething(obj: {val1: string, val2: number}) {}
+            }
+
+            @NgModule({
+              declarations: [SomeCmp],
+              imports: [CommonModule],
+            })
+            export class AppModule{
+            }
+          `,
+            'app.html': `{{doSomething({val1, val2})}}`,
+          },
+          {strictTemplates: true});
+      env.expectNoSourceDiagnostics();
+      project.expectNoSourceDiagnostics();
+
+      const template = project.openFile('app.html');
+      template.moveCursorToText('val¦1');
+      const quickInfo = template.getQuickInfoAtPosition();
+      expect(toText(quickInfo!.displayParts)).toEqual('(property) SomeCmp.val1: string');
+      template.moveCursorToText('val¦2');
+      const quickInfo2 = template.getQuickInfoAtPosition();
+      expect(toText(quickInfo2!.displayParts)).toEqual('(property) SomeCmp.val2: number');
+    });
   });
 
   describe('generics', () => {
@@ -550,8 +615,13 @@ describe('quick info', () => {
       // checkTypeOfPipes is set to false when strict templates is false
       project = env.addProject('test', quickInfoSkeleton(), {strictTemplates: false});
       const templateOverride = `<p>The hero's birthday is {{birthday | da¦te: "MM/dd/yy"}}</p>`;
-      expectQuickInfo(
-          {templateOverride, expectedSpanText: 'date', expectedDisplayString: '(pipe) DatePipe'});
+      expectQuickInfo({
+        templateOverride,
+        expectedSpanText: 'date',
+        expectedDisplayString:
+            '(pipe) DatePipe.transform(value: string | number | Date, format?: string | undefined, timezone?: ' +
+            'string | undefined, locale?: string | undefined): string | null (+2 overloads)'
+      });
     });
 
     it('should still get quick info if there is an invalid css resource', () => {

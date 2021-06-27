@@ -24,6 +24,18 @@ const DIR_WITH_INPUT = {
   `
 };
 
+const DIR_WITH_UNION_TYPE_INPUT = {
+  'Dir': `
+    @Directive({
+      selector: '[dir]',
+      inputs: ['myInput']
+    })
+    export class Dir {
+      myInput!: 'foo'|42|null|undefined
+    }
+  `
+};
+
 const DIR_WITH_OUTPUT = {
   'Dir': `
     @Directive({
@@ -203,6 +215,18 @@ describe('completions', () => {
       const completions = templateFile.getCompletionsAtPosition();
       expectContain(completions, ts.ScriptElementKind.memberVariableElement, ['title']);
     });
+
+    it('should return completions of string literals, number literals, `true`, `false`, `null` and `undefined`',
+       () => {
+         const {templateFile} = setup(`<input dir [myInput]="">`, '', DIR_WITH_UNION_TYPE_INPUT);
+         templateFile.moveCursorToText('dir [myInput]="¦">');
+
+         const completions = templateFile.getCompletionsAtPosition();
+         expectContain(completions, ts.ScriptElementKind.string, [`'foo'`, '42']);
+         expectContain(completions, ts.ScriptElementKind.keyword, ['null']);
+         expectContain(completions, ts.ScriptElementKind.variableElement, ['undefined']);
+         expectDoesNotContain(completions, ts.ScriptElementKind.parameterElement, ['ctx']);
+       });
   });
 
   describe('in an expression scope', () => {
@@ -562,6 +586,10 @@ describe('completions', () => {
                  unsafeCastDisplayInfoKindToScriptElementKind(DisplayInfoKind.DIRECTIVE),
                  ['ngFor']);
              expectReplacementText(completions, templateFile.contents, 'ng');
+             const details = templateFile.getCompletionEntryDetails(
+                 'ngFor', /* formatOptions */ undefined,
+                 /* preferences */ undefined)!;
+             expect(toText(details.displayParts)).toEqual('(directive) NgFor.NgFor: NgFor');
            });
 
         it('should return structural directive completions for just the structural marker', () => {
@@ -789,7 +817,7 @@ function setup(
         export class AppCmp {
           ${classContents}
         }
-        
+
         ${otherDirectiveClassDecls}
 
         @NgModule({
@@ -822,7 +850,7 @@ function setupInlineTemplate(
         export class AppCmp {
           ${classContents}
         }
-        
+
         ${otherDirectiveClassDecls}
 
         @NgModule({

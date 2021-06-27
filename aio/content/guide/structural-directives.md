@@ -4,11 +4,11 @@ This topic demonstrates how to create a structural directive and provides concep
 
 <div class="alert is-helpful">
 
-For the example app that this page describes, see the <live-example></live-example>.
+For the example application that this page describes, see the <live-example></live-example>.
 
 </div>
 
-For more information on Angular's built-in structural directives, such as `NgIf`, `NgFor`, and `NgSwitch`, see [Built-in directives](guide/built-in-directives).
+For more information on Angular's built-in structural directives, such as `NgIf`, `NgForOf`, and `NgSwitch`, see [Built-in directives](guide/built-in-directives).
 
 {@a unless}
 
@@ -20,7 +20,7 @@ The `UnlessDirective` does the opposite of `NgIf`, and `condition` values can be
 `UnlessDirective` displays the content when the condition is `false`.
 
 Following is the `UnlessDirective` selector, `appUnless`, applied to the paragraph element.
-When `condition` is `true`, the browser displays the sentence.
+When `condition` is `false`, the browser displays the sentence.
 
 <code-example path="structural-directives/src/app/app.component.html" header="src/app/app.component.html (appUnless-1)" region="appUnless-1"></code-example>
 

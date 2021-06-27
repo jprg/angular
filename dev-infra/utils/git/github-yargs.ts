@@ -7,7 +7,10 @@
  */
 
 import {Argv} from 'yargs';
+
 import {error, red, yellow} from '../console';
+
+import {AuthenticatedGitClient} from './authenticated-git-client';
 import {GITHUB_TOKEN_GENERATE_URL} from './github-urls';
 
 export type ArgvWithGithubToken = Argv<{githubToken: string}>;
@@ -16,7 +19,7 @@ export type ArgvWithGithubToken = Argv<{githubToken: string}>;
 export function addGithubTokenOption(yargs: Argv): ArgvWithGithubToken {
   return yargs
       // 'github-token' is casted to 'githubToken' to properly set up typings to reflect the key in
-      // the Argv object being camelCase rather than kebob case due to the `camel-case-expansion`
+      // the Argv object being camelCase rather than kebab case due to the `camel-case-expansion`
       // config: https://github.com/yargs/yargs-parser#camel-case-expansion
       .option('github-token' as 'githubToken', {
         type: 'string',
@@ -28,6 +31,11 @@ export function addGithubTokenOption(yargs: Argv): ArgvWithGithubToken {
             error(red('Alternatively, pass the `--github-token` command line flag.'));
             error(yellow(`You can generate a token here: ${GITHUB_TOKEN_GENERATE_URL}`));
             process.exit(1);
+          }
+          try {
+            AuthenticatedGitClient.get();
+          } catch {
+            AuthenticatedGitClient.configure(githubToken);
           }
           return githubToken;
         },

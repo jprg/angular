@@ -82,9 +82,11 @@ export class CompletionBuilder<N extends TmplAstNode|AST> {
    */
   getCompletionEntryDetails(
       entryName: string, formatOptions: ts.FormatCodeOptions|ts.FormatCodeSettings|undefined,
-      preferences: ts.UserPreferences|undefined): ts.CompletionEntryDetails|undefined {
+      preferences: ts.UserPreferences|undefined,
+      data: ts.CompletionEntryData|undefined): ts.CompletionEntryDetails|undefined {
     if (this.isPropertyExpressionCompletion()) {
-      return this.getPropertyExpressionCompletionDetails(entryName, formatOptions, preferences);
+      return this.getPropertyExpressionCompletionDetails(
+          entryName, formatOptions, preferences, data);
     } else if (this.isElementTagCompletion()) {
       return this.getElementTagCompletionDetails(entryName);
     } else if (this.isElementAttributeCompletion()) {
@@ -167,12 +169,13 @@ export class CompletionBuilder<N extends TmplAstNode|AST> {
   private getPropertyExpressionCompletionDetails(
       this: PropertyExpressionCompletionBuilder, entryName: string,
       formatOptions: ts.FormatCodeOptions|ts.FormatCodeSettings|undefined,
-      preferences: ts.UserPreferences|undefined): ts.CompletionEntryDetails|undefined {
+      preferences: ts.UserPreferences|undefined,
+      data: ts.CompletionEntryData|undefined): ts.CompletionEntryDetails|undefined {
     let details: ts.CompletionEntryDetails|undefined = undefined;
     if (this.node instanceof EmptyExpr || this.node instanceof BoundEvent ||
         this.node.receiver instanceof ImplicitReceiver) {
-      details =
-          this.getGlobalPropertyExpressionCompletionDetails(entryName, formatOptions, preferences);
+      details = this.getGlobalPropertyExpressionCompletionDetails(
+          entryName, formatOptions, preferences, data);
     } else {
       const location = this.compiler.getTemplateTypeChecker().getExpressionCompletionLocation(
           this.node, this.component);
@@ -181,7 +184,7 @@ export class CompletionBuilder<N extends TmplAstNode|AST> {
       }
       details = this.tsLS.getCompletionEntryDetails(
           location.shimPath, location.positionInShimFile, entryName, formatOptions,
-          /* source */ undefined, preferences);
+          /* source */ undefined, preferences, data);
     }
     if (details !== undefined) {
       details.displayParts = filterAliasImports(details.displayParts);
@@ -216,21 +219,21 @@ export class CompletionBuilder<N extends TmplAstNode|AST> {
       options: ts.GetCompletionsAtPositionOptions|
       undefined): ts.WithMetadata<ts.CompletionInfo>|undefined {
     const completions =
-        this.templateTypeChecker.getGlobalCompletions(this.template, this.component);
+        this.templateTypeChecker.getGlobalCompletions(this.template, this.component, this.node);
     if (completions === null) {
       return undefined;
     }
 
-    const {componentContext, templateContext} = completions;
+    const {componentContext, templateContext, nodeContext: astContext} = completions;
 
     const replacementSpan = makeReplacementSpanFromAst(this.node);
 
     // Merge TS completion results with results from the template scope.
     let entries: ts.CompletionEntry[] = [];
-    const tsLsCompletions = this.tsLS.getCompletionsAtPosition(
+    const componentCompletions = this.tsLS.getCompletionsAtPosition(
         componentContext.shimPath, componentContext.positionInShimFile, options);
-    if (tsLsCompletions !== undefined) {
-      for (const tsCompletion of tsLsCompletions.entries) {
+    if (componentCompletions !== undefined) {
+      for (const tsCompletion of componentCompletions.entries) {
         // Skip completions that are shadowed by a template entity definition.
         if (templateContext.has(tsCompletion.name)) {
           continue;
@@ -241,6 +244,24 @@ export class CompletionBuilder<N extends TmplAstNode|AST> {
           // with the `replacementSpan` within the template source.
           replacementSpan,
         });
+      }
+    }
+
+    // Merge TS completion results with results from the ast context.
+    if (astContext !== null) {
+      const nodeCompletions = this.tsLS.getCompletionsAtPosition(
+          astContext.shimPath, astContext.positionInShimFile, options);
+      if (nodeCompletions !== undefined) {
+        for (const tsCompletion of nodeCompletions.entries) {
+          if (this.isValidNodeContextCompletion(tsCompletion)) {
+            entries.push({
+              ...tsCompletion,
+              // Substitute the TS completion's `replacementSpan` (which uses offsets within the
+              // TCB) with the `replacementSpan` within the template source.
+              replacementSpan,
+            });
+          }
+        }
       }
     }
 
@@ -274,9 +295,10 @@ export class CompletionBuilder<N extends TmplAstNode|AST> {
   private getGlobalPropertyExpressionCompletionDetails(
       this: PropertyExpressionCompletionBuilder, entryName: string,
       formatOptions: ts.FormatCodeOptions|ts.FormatCodeSettings|undefined,
-      preferences: ts.UserPreferences|undefined): ts.CompletionEntryDetails|undefined {
+      preferences: ts.UserPreferences|undefined,
+      data: ts.CompletionEntryData|undefined): ts.CompletionEntryDetails|undefined {
     const completions =
-        this.templateTypeChecker.getGlobalCompletions(this.template, this.component);
+        this.templateTypeChecker.getGlobalCompletions(this.template, this.component, this.node);
     if (completions === null) {
       return undefined;
     }
@@ -305,7 +327,7 @@ export class CompletionBuilder<N extends TmplAstNode|AST> {
     } else {
       return this.tsLS.getCompletionEntryDetails(
           componentContext.shimPath, componentContext.positionInShimFile, entryName, formatOptions,
-          /* source */ undefined, preferences);
+          /* source */ undefined, preferences, data);
     }
   }
 
@@ -317,7 +339,7 @@ export class CompletionBuilder<N extends TmplAstNode|AST> {
   private getGlobalPropertyExpressionCompletionSymbol(
       this: PropertyExpressionCompletionBuilder, entryName: string): ts.Symbol|undefined {
     const completions =
-        this.templateTypeChecker.getGlobalCompletions(this.template, this.component);
+        this.templateTypeChecker.getGlobalCompletions(this.template, this.component, this.node);
     if (completions === null) {
       return undefined;
     }
@@ -557,6 +579,7 @@ export class CompletionBuilder<N extends TmplAstNode|AST> {
         displayParts = info.displayParts;
         documentation = info.documentation;
         break;
+      case AttributeCompletionKind.StructuralDirectiveAttribute:
       case AttributeCompletionKind.DirectiveInput:
       case AttributeCompletionKind.DirectiveOutput:
         const propertySymbol = getAttributeCompletionSymbol(completion, this.typeChecker);
@@ -564,11 +587,17 @@ export class CompletionBuilder<N extends TmplAstNode|AST> {
           return undefined;
         }
 
+        let kind: DisplayInfoKind;
+        if (completion.kind === AttributeCompletionKind.DirectiveInput) {
+          kind = DisplayInfoKind.PROPERTY;
+        } else if (completion.kind === AttributeCompletionKind.DirectiveOutput) {
+          kind = DisplayInfoKind.EVENT;
+        } else {
+          kind = DisplayInfoKind.DIRECTIVE;
+        }
+
         info = getTsSymbolDisplayInfo(
-            this.tsLS, this.typeChecker, propertySymbol,
-            completion.kind === AttributeCompletionKind.DirectiveInput ? DisplayInfoKind.PROPERTY :
-                                                                         DisplayInfoKind.EVENT,
-            completion.directive.tsSymbol.name);
+            this.tsLS, this.typeChecker, propertySymbol, kind, completion.directive.tsSymbol.name);
         if (info === null) {
           return undefined;
         }
@@ -580,7 +609,7 @@ export class CompletionBuilder<N extends TmplAstNode|AST> {
       name: entryName,
       kind: unsafeCastDisplayInfoKindToScriptElementKind(kind),
       kindModifiers: ts.ScriptElementKindModifier.none,
-      displayParts: [],
+      displayParts,
       documentation,
     };
   }
@@ -637,6 +666,25 @@ export class CompletionBuilder<N extends TmplAstNode|AST> {
       isMemberCompletion: false,
       isNewIdentifierLocation: false,
     };
+  }
+
+  /**
+   * From the AST node of the cursor position, include completion of string literals, number
+   * literals, `true`, `false`, `null`, and `undefined`.
+   */
+  private isValidNodeContextCompletion(completion: ts.CompletionEntry): boolean {
+    if (completion.kind === ts.ScriptElementKind.string) {
+      // 'string' kind includes both string literals and number literals
+      return true;
+    }
+    if (completion.kind === ts.ScriptElementKind.keyword) {
+      return completion.name === 'true' || completion.name === 'false' ||
+          completion.name === 'null';
+    }
+    if (completion.kind === ts.ScriptElementKind.variableElement) {
+      return completion.name === 'undefined';
+    }
+    return false;
   }
 }
 

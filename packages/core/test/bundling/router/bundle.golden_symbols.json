@@ -738,6 +738,12 @@
     "name": "SimpleChange"
   },
   {
+    "name": "SimpleInnerSubscriber"
+  },
+  {
+    "name": "SimpleOuterSubscriber"
+  },
+  {
     "name": "SkipSelf"
   },
   {
@@ -1500,6 +1506,9 @@
     "name": "injectableDefOrInjectorDefFactory"
   },
   {
+    "name": "innerSubscribe"
+  },
+  {
     "name": "insertBloom"
   },
   {
@@ -1822,6 +1831,9 @@
   },
   {
     "name": "removeFromArray"
+  },
+  {
+    "name": "removeStyle"
   },
   {
     "name": "renderComponent"

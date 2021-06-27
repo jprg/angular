@@ -1,13 +1,16 @@
 'use strict';
 
-function _interopDefault (ex) { return (ex && (typeof ex === 'object') && 'default' in ex) ? ex['default'] : ex; }
-
 var tslib = require('tslib');
 var fs = require('fs');
 var path = require('path');
-var chalk = _interopDefault(require('chalk'));
+require('chalk');
 require('inquirer');
-var shelljs = require('shelljs');
+var child_process = require('child_process');
+var semver = require('semver');
+var graphql = require('@octokit/graphql');
+var rest = require('@octokit/rest');
+var typedGraphqlify = require('typed-graphqlify');
+var url = require('url');
 
 /**
  * @license
@@ -16,12 +19,313 @@ var shelljs = require('shelljs');
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file at https://angular.io/license
  */
-/** Reexport of chalk colors for convenient access. */
-var red = chalk.red;
-var green = chalk.green;
-var yellow = chalk.yellow;
-var bold = chalk.bold;
-var blue = chalk.blue;
+/** Whether the current environment is in dry run mode. */
+function isDryRun() {
+    return process.env['DRY_RUN'] !== undefined;
+}
+/** Error to be thrown when a function or method is called in dryRun mode and shouldn't be. */
+var DryRunError = /** @class */ (function (_super) {
+    tslib.__extends(DryRunError, _super);
+    function DryRunError() {
+        var _this = _super.call(this, 'Cannot call this function in dryRun mode.') || this;
+        // Set the prototype explicitly because in ES5, the prototype is accidentally lost due to
+        // a limitation in down-leveling.
+        // https://github.com/Microsoft/TypeScript/wiki/FAQ#why-doesnt-extending-built-ins-like-error-array-and-map-work.
+        Object.setPrototypeOf(_this, DryRunError.prototype);
+        return _this;
+    }
+    return DryRunError;
+}(Error));
+
+/**
+ * @license
+ * Copyright Google LLC All Rights Reserved.
+ *
+ * Use of this source code is governed by an MIT-style license that can be
+ * found in the LICENSE file at https://angular.io/license
+ */
+/** Error for failed Github API requests. */
+var GithubApiRequestError = /** @class */ (function (_super) {
+    tslib.__extends(GithubApiRequestError, _super);
+    function GithubApiRequestError(status, message) {
+        var _this = _super.call(this, message) || this;
+        _this.status = status;
+        return _this;
+    }
+    return GithubApiRequestError;
+}(Error));
+/** A Github client for interacting with the Github APIs. */
+var GithubClient = /** @class */ (function () {
+    function GithubClient(_octokitOptions) {
+        this._octokitOptions = _octokitOptions;
+        /** The octokit instance actually performing API requests. */
+        this._octokit = new rest.Octokit(this._octokitOptions);
+        this.pulls = this._octokit.pulls;
+        this.repos = this._octokit.repos;
+        this.issues = this._octokit.issues;
+        this.git = this._octokit.git;
+        this.paginate = this._octokit.paginate;
+        this.rateLimit = this._octokit.rateLimit;
+    }
+    return GithubClient;
+}());
+/**
+ * Extension of the `GithubClient` that provides utilities which are specific
+ * to authenticated instances.
+ */
+var AuthenticatedGithubClient = /** @class */ (function (_super) {
+    tslib.__extends(AuthenticatedGithubClient, _super);
+    function AuthenticatedGithubClient(_token) {
+        var _this = 
+        // Set the token for the octokit instance.
+        _super.call(this, { auth: _token }) || this;
+        _this._token = _token;
+        /** The graphql instance with authentication set during construction. */
+        _this._graphql = graphql.graphql.defaults({ headers: { authorization: "token " + _this._token } });
+        return _this;
+    }
+    /** Perform a query using Github's Graphql API. */
+    AuthenticatedGithubClient.prototype.graphql = function (queryObject, params) {
+        if (params === void 0) { params = {}; }
+        return tslib.__awaiter(this, void 0, void 0, function () {
+            return tslib.__generator(this, function (_a) {
+                switch (_a.label) {
+                    case 0: return [4 /*yield*/, this._graphql(typedGraphqlify.query(queryObject).toString(), params)];
+                    case 1: return [2 /*return*/, (_a.sent())];
+                }
+            });
+        });
+    };
+    return AuthenticatedGithubClient;
+}(GithubClient));
+
+/**
+ * @license
+ * Copyright Google LLC All Rights Reserved.
+ *
+ * Use of this source code is governed by an MIT-style license that can be
+ * found in the LICENSE file at https://angular.io/license
+ */
+/** Adds the provided token to the given Github HTTPs remote url. */
+function addTokenToGitHttpsUrl(githubHttpsUrl, token) {
+    var url$1 = new url.URL(githubHttpsUrl);
+    url$1.username = token;
+    return url$1.href;
+}
+/** Gets the repository Git URL for the given github config. */
+function getRepositoryGitUrl(config, githubToken) {
+    if (config.useSsh) {
+        return "git@github.com:" + config.owner + "/" + config.name + ".git";
+    }
+    var baseHttpUrl = "https://github.com/" + config.owner + "/" + config.name + ".git";
+    if (githubToken !== undefined) {
+        return addTokenToGitHttpsUrl(baseHttpUrl, githubToken);
+    }
+    return baseHttpUrl;
+}
+
+/**
+ * @license
+ * Copyright Google LLC All Rights Reserved.
+ *
+ * Use of this source code is governed by an MIT-style license that can be
+ * found in the LICENSE file at https://angular.io/license
+ */
+/** Error for failed Git commands. */
+var GitCommandError = /** @class */ (function (_super) {
+    tslib.__extends(GitCommandError, _super);
+    function GitCommandError(client, args) {
+        var _this = 
+        // Errors are not guaranteed to be caught. To ensure that we don't
+        // accidentally leak the Github token that might be used in a command,
+        // we sanitize the command that will be part of the error message.
+        _super.call(this, "Command failed: git " + client.sanitizeConsoleOutput(args.join(' '))) || this;
+        _this.args = args;
+        return _this;
+    }
+    return GitCommandError;
+}(Error));
+/** Class that can be used to perform Git interactions with a given remote. **/
+var GitClient = /** @class */ (function () {
+    function GitClient(
+    /** The full path to the root of the repository base. */
+    baseDir, 
+    /** The configuration, containing the github specific configuration. */
+    config) {
+        if (baseDir === void 0) { baseDir = determineRepoBaseDirFromCwd(); }
+        if (config === void 0) { config = getConfig(baseDir); }
+        this.baseDir = baseDir;
+        this.config = config;
+        /** Short-hand for accessing the default remote configuration. */
+        this.remoteConfig = this.config.github;
+        /** Octokit request parameters object for targeting the configured remote. */
+        this.remoteParams = { owner: this.remoteConfig.owner, repo: this.remoteConfig.name };
+        /** Instance of the Github client. */
+        this.github = new GithubClient();
+    }
+    /** Executes the given git command. Throws if the command fails. */
+    GitClient.prototype.run = function (args, options) {
+        var result = this.runGraceful(args, options);
+        if (result.status !== 0) {
+            throw new GitCommandError(this, args);
+        }
+        // Omit `status` from the type so that it's obvious that the status is never
+        // non-zero as explained in the method description.
+        return result;
+    };
+    /**
+     * Spawns a given Git command process. Does not throw if the command fails. Additionally,
+     * if there is any stderr output, the output will be printed. This makes it easier to
+     * info failed commands.
+     */
+    GitClient.prototype.runGraceful = function (args, options) {
+        if (options === void 0) { options = {}; }
+        /** The git command to be run. */
+        var gitCommand = args[0];
+        if (isDryRun() && gitCommand === 'push') {
+            debug("\"git push\" is not able to be run in dryRun mode.");
+            throw new DryRunError();
+        }
+        // To improve the debugging experience in case something fails, we print all executed Git
+        // commands at the DEBUG level to better understand the git actions occurring. Verbose logging,
+        // always logging at the INFO level, can be enabled either by setting the verboseLogging
+        // property on the GitClient class or the options object provided to the method.
+        var printFn = (GitClient.verboseLogging || options.verboseLogging) ? info : debug;
+        // Note that we sanitize the command before printing it to the console. We do not want to
+        // print an access token if it is contained in the command. It's common to share errors with
+        // others if the tool failed, and we do not want to leak tokens.
+        printFn('Executing: git', this.sanitizeConsoleOutput(args.join(' ')));
+        var result = child_process.spawnSync('git', args, tslib.__assign(tslib.__assign({ cwd: this.baseDir, stdio: 'pipe' }, options), { 
+            // Encoding is always `utf8` and not overridable. This ensures that this method
+            // always returns `string` as output instead of buffers.
+            encoding: 'utf8' }));
+        if (result.stderr !== null) {
+            // Git sometimes prints the command if it failed. This means that it could
+            // potentially leak the Github token used for accessing the remote. To avoid
+            // printing a token, we sanitize the string before printing the stderr output.
+            process.stderr.write(this.sanitizeConsoleOutput(result.stderr));
+        }
+        return result;
+    };
+    /** Git URL that resolves to the configured repository. */
+    GitClient.prototype.getRepoGitUrl = function () {
+        return getRepositoryGitUrl(this.remoteConfig);
+    };
+    /** Whether the given branch contains the specified SHA. */
+    GitClient.prototype.hasCommit = function (branchName, sha) {
+        return this.run(['branch', branchName, '--contains', sha]).stdout !== '';
+    };
+    /** Gets the currently checked out branch or revision. */
+    GitClient.prototype.getCurrentBranchOrRevision = function () {
+        var branchName = this.run(['rev-parse', '--abbrev-ref', 'HEAD']).stdout.trim();
+        // If no branch name could be resolved. i.e. `HEAD` has been returned, then Git
+        // is currently in a detached state. In those cases, we just want to return the
+        // currently checked out revision/SHA.
+        if (branchName === 'HEAD') {
+            return this.run(['rev-parse', 'HEAD']).stdout.trim();
+        }
+        return branchName;
+    };
+    /** Gets whether the current Git repository has uncommitted changes. */
+    GitClient.prototype.hasUncommittedChanges = function () {
+        return this.runGraceful(['diff-index', '--quiet', 'HEAD']).status !== 0;
+    };
+    /**
+     * Checks out a requested branch or revision, optionally cleaning the state of the repository
+     * before attempting the checking. Returns a boolean indicating whether the branch or revision
+     * was cleanly checked out.
+     */
+    GitClient.prototype.checkout = function (branchOrRevision, cleanState) {
+        if (cleanState) {
+            // Abort any outstanding ams.
+            this.runGraceful(['am', '--abort'], { stdio: 'ignore' });
+            // Abort any outstanding cherry-picks.
+            this.runGraceful(['cherry-pick', '--abort'], { stdio: 'ignore' });
+            // Abort any outstanding rebases.
+            this.runGraceful(['rebase', '--abort'], { stdio: 'ignore' });
+            // Clear any changes in the current repo.
+            this.runGraceful(['reset', '--hard'], { stdio: 'ignore' });
+        }
+        return this.runGraceful(['checkout', branchOrRevision], { stdio: 'ignore' }).status === 0;
+    };
+    /** Gets the latest git tag on the current branch that matches SemVer. */
+    GitClient.prototype.getLatestSemverTag = function () {
+        var semVerOptions = { loose: true };
+        var tags = this.runGraceful(['tag', '--sort=-committerdate', '--merged']).stdout.split('\n');
+        var latestTag = tags.find(function (tag) { return semver.parse(tag, semVerOptions); });
+        if (latestTag === undefined) {
+            throw new Error("Unable to find a SemVer matching tag on \"" + this.getCurrentBranchOrRevision() + "\"");
+        }
+        return new semver.SemVer(latestTag, semVerOptions);
+    };
+    /** Retrieve a list of all files in the repository changed since the provided shaOrRef. */
+    GitClient.prototype.allChangesFilesSince = function (shaOrRef) {
+        if (shaOrRef === void 0) { shaOrRef = 'HEAD'; }
+        return Array.from(new Set(tslib.__spreadArray(tslib.__spreadArray([], tslib.__read(gitOutputAsArray(this.runGraceful(['diff', '--name-only', '--diff-filter=d', shaOrRef])))), tslib.__read(gitOutputAsArray(this.runGraceful(['ls-files', '--others', '--exclude-standard']))))));
+    };
+    /** Retrieve a list of all files currently staged in the repostitory. */
+    GitClient.prototype.allStagedFiles = function () {
+        return gitOutputAsArray(this.runGraceful(['diff', '--name-only', '--diff-filter=ACM', '--staged']));
+    };
+    /** Retrieve a list of all files tracked in the repository. */
+    GitClient.prototype.allFiles = function () {
+        return gitOutputAsArray(this.runGraceful(['ls-files']));
+    };
+    /**
+     * Sanitizes the given console message. This method can be overridden by
+     * derived classes. e.g. to sanitize access tokens from Git commands.
+     */
+    GitClient.prototype.sanitizeConsoleOutput = function (value) {
+        return value;
+    };
+    /** Set the verbose logging state of all git client instances. */
+    GitClient.setVerboseLoggingState = function (verbose) {
+        GitClient.verboseLogging = verbose;
+    };
+    /**
+     * Static method to get the singleton instance of the `GitClient`, creating it
+     * if it has not yet been created.
+     */
+    GitClient.get = function () {
+        if (!this._unauthenticatedInstance) {
+            GitClient._unauthenticatedInstance = new GitClient();
+        }
+        return GitClient._unauthenticatedInstance;
+    };
+    /** Whether verbose logging of Git actions should be used. */
+    GitClient.verboseLogging = false;
+    return GitClient;
+}());
+/**
+ * Takes the output from `run` and `runGraceful` and returns an array of strings for each
+ * new line. Git commands typically return multiple output values for a command a set of
+ * strings separated by new lines.
+ *
+ * Note: This is specifically created as a locally available function for usage as convenience
+ * utility within `GitClient`'s methods to create outputs as array.
+ */
+function gitOutputAsArray(gitCommandResult) {
+    return gitCommandResult.stdout.split('\n').map(function (x) { return x.trim(); }).filter(function (x) { return !!x; });
+}
+/** Determines the repository base directory from the current working directory. */
+function determineRepoBaseDirFromCwd() {
+    // TODO(devversion): Replace with common spawn sync utility once available.
+    var _a = child_process.spawnSync('git', ['rev-parse --show-toplevel'], { shell: true, stdio: 'pipe', encoding: 'utf8' }), stdout = _a.stdout, stderr = _a.stderr, status = _a.status;
+    if (status !== 0) {
+        throw Error("Unable to find the path to the base directory of the repository.\n" +
+            "Was the command run from inside of the repo?\n\n" +
+            ("" + stderr));
+    }
+    return stdout.trim();
+}
+
+/**
+ * @license
+ * Copyright Google LLC All Rights Reserved.
+ *
+ * Use of this source code is governed by an MIT-style license that can be
+ * found in the LICENSE file at https://angular.io/license
+ */
 /**
  * Supported levels for logging functions.
  *
@@ -124,21 +428,6 @@ function printToLogFile(logLevel) {
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file at https://angular.io/license
  */
-/**
- * Runs an given command as child process. By default, child process
- * output will not be printed.
- */
-function exec(cmd, opts) {
-    return shelljs.exec(cmd, tslib.__assign(tslib.__assign({ silent: true }, opts), { async: false }));
-}
-
-/**
- * @license
- * Copyright Google LLC All Rights Reserved.
- *
- * Use of this source code is governed by an MIT-style license that can be
- * found in the LICENSE file at https://angular.io/license
- */
 /** Whether ts-node has been installed and is available to ng-dev. */
 function isTsNodeAvailable() {
     try {
@@ -164,15 +453,12 @@ function isTsNodeAvailable() {
 var CONFIG_FILE_PATH = '.ng-dev/config';
 /** The configuration for ng-dev. */
 var cachedConfig = null;
-/**
- * Get the configuration from the file system, returning the already loaded
- * copy if it is defined.
- */
-function getConfig() {
+function getConfig(baseDir) {
     // If the global config is not defined, load it from the file system.
     if (cachedConfig === null) {
+        baseDir = baseDir || GitClient.get().baseDir;
         // The full path to the configuration file.
-        var configPath = path.join(getRepoBaseDir(), CONFIG_FILE_PATH);
+        var configPath = path.join(baseDir, CONFIG_FILE_PATH);
         // Read the configuration and validate it before caching it for the future.
         cachedConfig = validateCommonConfig(readConfigFile(configPath));
     }
@@ -253,16 +539,6 @@ function assertNoErrors(errors) {
     }
     process.exit(1);
 }
-/** Gets the path of the directory for the repository base. */
-function getRepoBaseDir() {
-    var baseRepoDir = exec("git rev-parse --show-toplevel");
-    if (baseRepoDir.code) {
-        throw Error("Unable to find the path to the base directory of the repository.\n" +
-            "Was the command run from inside of the repo?\n\n" +
-            ("ERROR:\n " + baseRepoDir.stderr));
-    }
-    return baseRepoDir.trim();
-}
 
 /**
  * @license
@@ -285,8 +561,8 @@ function getReleaseConfig(config = getConfig()) {
     if (((_b = config.release) === null || _b === void 0 ? void 0 : _b.buildPackages) === undefined) {
         errors.push(`No "buildPackages" function configured for releasing.`);
     }
-    if (((_c = config.release) === null || _c === void 0 ? void 0 : _c.generateReleaseNotesForHead) === undefined) {
-        errors.push(`No "generateReleaseNotesForHead" function configured for releasing.`);
+    if (((_c = config.release) === null || _c === void 0 ? void 0 : _c.releaseNotes) === undefined) {
+        errors.push(`No "releaseNotes" configured for releasing.`);
     }
     assertNoErrors(errors);
     return config.release;
@@ -300,15 +576,15 @@ function getReleaseConfig(config = getConfig()) {
  * found in the LICENSE file at https://angular.io/license
  */
 // Start the release package building.
-main();
+main(process.argv[2] === 'true');
 /** Main function for building the release packages. */
-function main() {
+function main(stampForRelease) {
     return tslib.__awaiter(this, void 0, void 0, function* () {
         if (process.send === undefined) {
             throw Error('This script needs to be invoked as a NodeJS worker.');
         }
         const config = getReleaseConfig();
-        const builtPackages = yield config.buildPackages();
+        const builtPackages = yield config.buildPackages(stampForRelease);
         // Transfer the built packages back to the parent process.
         process.send(builtPackages);
     });

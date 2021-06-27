@@ -35,7 +35,8 @@ export async function getVersionOfBranch(
     repo: GithubRepoWithApi, branchName: string): Promise<semver.SemVer> {
   const {data} = await repo.api.repos.getContents(
       {owner: repo.owner, repo: repo.name, path: '/package.json', ref: branchName});
-  const {version} = JSON.parse(Buffer.from(data.content, 'base64').toString()) as
+  const content = Array.isArray(data) ? '' : data.content || '';
+  const {version} = JSON.parse(Buffer.from(content, 'base64').toString()) as
       {version: string, [key: string]: any};
   const parsedVersion = semver.parse(version);
   if (parsedVersion === null) {
@@ -66,8 +67,10 @@ export function getVersionForVersionBranch(branchName: string): semver.SemVer|nu
  */
 export async function getBranchesForMajorVersions(
     repo: GithubRepoWithApi, majorVersions: number[]): Promise<VersionBranch[]> {
-  const {data: branchData} =
-      await repo.api.repos.listBranches({owner: repo.owner, repo: repo.name, protected: true});
+  // TODO(alxhub): actually paginate this, since eventually the number of branches we have will run
+  // off the end of the first page of data returned by `listBranches`.
+  const {data: branchData} = await repo.api.repos.listBranches(
+      {owner: repo.owner, repo: repo.name, protected: true, per_page: 100});
   const branches: VersionBranch[] = [];
 
   for (const {name} of branchData) {

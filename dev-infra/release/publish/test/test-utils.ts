@@ -13,16 +13,17 @@ import * as semver from 'semver';
 
 import {GithubConfig} from '../../../utils/config';
 import * as console from '../../../utils/console';
-import {getBranchPushMatcher, VirtualGitClient} from '../../../utils/testing';
+import {getBranchPushMatcher, installVirtualGitClientSpies, VirtualGitClient} from '../../../utils/testing';
 import {ReleaseConfig} from '../../config/index';
 import {ActiveReleaseTrains} from '../../versioning/active-release-trains';
 import * as npm from '../../versioning/npm-publish';
-import {_npmPackageInfoCache, NpmPackageInfo} from '../../versioning/npm-registry';
+import {_npmPackageInfoCache, NpmDistTag, NpmPackageInfo} from '../../versioning/npm-registry';
 import {ReleaseAction, ReleaseActionConstructor} from '../actions';
 import * as constants from '../constants';
 import * as externalCommands from '../external-commands';
 
 import {GithubTestingRepo} from './github-api-testing';
+import {installMockReleaseNotes} from './release-notes/release-notes-utils';
 
 /**
  * Temporary directory which will be used as project directory in tests. Note that
@@ -44,13 +45,13 @@ export interface TestReleaseAction<T extends ReleaseAction = ReleaseAction> {
 /** Gets necessary test mocks for running a release action. */
 export function getTestingMocksForReleaseAction() {
   const githubConfig = {owner: 'angular', name: 'dev-infra-test'};
-  const gitClient = new VirtualGitClient(undefined, {github: githubConfig}, testTmpDir);
+  const gitClient = VirtualGitClient.createInstance({github: githubConfig});
   const releaseConfig: ReleaseConfig = {
     npmPackages: [
       '@angular/pkg1',
       '@angular/pkg2',
     ],
-    generateReleaseNotesForHead: jasmine.createSpy('generateReleaseNotesForHead').and.resolveTo(),
+    releaseNotes: {},
     buildPackages: () => {
       throw Error('Not implemented');
     },
@@ -74,6 +75,9 @@ export function setupReleaseActionForTesting<T extends ReleaseAction>(
   const repo = new GithubTestingRepo(githubConfig.owner, githubConfig.name);
   const fork = new GithubTestingRepo('some-user', 'fork');
 
+  installVirtualGitClientSpies(gitClient);
+  installMockReleaseNotes();
+
   // The version for the release-train in the next phase does not necessarily need to be
   // published to NPM. We mock the NPM package request and fake the state of the next
   // version based on the `isNextPublishedToNpm` testing parameter. More details on the
@@ -92,7 +96,6 @@ export function setupReleaseActionForTesting<T extends ReleaseAction>(
   spyOn(npm, 'runNpmPublish').and.resolveTo();
   spyOn(externalCommands, 'invokeSetNpmDistCommand').and.resolveTo();
   spyOn(externalCommands, 'invokeYarnInstallCommand').and.resolveTo();
-  spyOn(externalCommands, 'invokeBazelCleanCommand').and.resolveTo();
   spyOn(externalCommands, 'invokeReleaseBuildCommand').and.resolveTo([
     {name: '@angular/pkg1', outputPath: `${testTmpDir}/dist/pkg1`},
     {name: '@angular/pkg2', outputPath: `${testTmpDir}/dist/pkg2`}
@@ -119,15 +122,10 @@ export function parse(version: string): semver.SemVer {
   return semver.parse(version)!;
 }
 
-/** Gets a changelog for the specified version. */
-export function getChangelogForVersion(version: string): string {
-  return `<a name="${version}"></a>Changelog\n\n`;
-}
-
 export async function expectStagingAndPublishWithoutCherryPick(
     action: TestReleaseAction, expectedBranch: string, expectedVersion: string,
-    expectedNpmDistTag: string) {
-  const {repo, fork, gitClient, releaseConfig} = action;
+    expectedNpmDistTag: NpmDistTag) {
+  const {repo, fork, gitClient} = action;
   const expectedStagingForkBranch = `release-stage-${expectedVersion}`;
   const expectedTagName = expectedVersion;
 
@@ -166,7 +164,6 @@ export async function expectStagingAndPublishWithoutCherryPick(
           'Expected release staging branch to be created in fork.');
 
   expect(externalCommands.invokeReleaseBuildCommand).toHaveBeenCalledTimes(1);
-  expect(releaseConfig.generateReleaseNotesForHead).toHaveBeenCalledTimes(1);
   expect(npm.runNpmPublish).toHaveBeenCalledTimes(2);
   expect(npm.runNpmPublish)
       .toHaveBeenCalledWith(`${testTmpDir}/dist/pkg1`, expectedNpmDistTag, undefined);
@@ -176,7 +173,7 @@ export async function expectStagingAndPublishWithoutCherryPick(
 
 export async function expectStagingAndPublishWithCherryPick(
     action: TestReleaseAction, expectedBranch: string, expectedVersion: string,
-    expectedNpmDistTag: string) {
+    expectedNpmDistTag: NpmDistTag) {
   const {repo, fork, gitClient, releaseConfig} = action;
   const expectedStagingForkBranch = `release-stage-${expectedVersion}`;
   const expectedCherryPickForkBranch = `changelog-cherry-pick-${expectedVersion}`;
@@ -194,7 +191,6 @@ export async function expectStagingAndPublishWithCherryPick(
           'STAGING_COMMIT_SHA', `release: cut the v${expectedVersion} release\n\nPR Close #200.`)
       .expectTagToBeCreated(expectedTagName, 'STAGING_COMMIT_SHA')
       .expectReleaseToBeCreated(`v${expectedVersion}`, expectedTagName)
-      .expectChangelogFetch(expectedBranch, getChangelogForVersion(expectedVersion))
       .expectPullRequestToBeCreated('master', fork, expectedCherryPickForkBranch, 300)
       .expectPullRequestWait(300);
 
@@ -235,7 +231,6 @@ export async function expectStagingAndPublishWithCherryPick(
           'Expected cherry-pick branch to be created in fork.');
 
   expect(externalCommands.invokeReleaseBuildCommand).toHaveBeenCalledTimes(1);
-  expect(releaseConfig.generateReleaseNotesForHead).toHaveBeenCalledTimes(1);
   expect(npm.runNpmPublish).toHaveBeenCalledTimes(2);
   expect(npm.runNpmPublish)
       .toHaveBeenCalledWith(`${testTmpDir}/dist/pkg1`, expectedNpmDistTag, undefined);

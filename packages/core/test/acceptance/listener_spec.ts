@@ -6,7 +6,8 @@
  * found in the LICENSE file at https://angular.io/license
  */
 
-import {Component, Directive, ErrorHandler, EventEmitter, HostListener, Input, Output, QueryList, ViewChild, ViewChildren} from '@angular/core';
+import {CommonModule} from '@angular/common';
+import {Component, Directive, ErrorHandler, EventEmitter, HostListener, Input, OnInit, Output, QueryList, TemplateRef, ViewChild, ViewChildren, ViewContainerRef} from '@angular/core';
 import {TestBed} from '@angular/core/testing';
 import {By} from '@angular/platform-browser';
 import {onlyInIvy} from '@angular/private/testing';
@@ -397,6 +398,108 @@ describe('event listeners', () => {
     expect(comp.counter).toBe(1);
   });
 
+  onlyInIvy('global event listeners on non-node host elements are supported only in Ivy')
+      .it('should bind global event listeners on an ng-container directive host', () => {
+        let clicks = 0;
+
+        @Directive({selector: '[add-global-listener]'})
+        class AddGlobalListener {
+          @HostListener('document:click')
+          handleClick() {
+            clicks++;
+          }
+        }
+
+        @Component({
+          template: `
+            <ng-container add-global-listener>
+              <button>Click me!</button>
+            </ng-container>
+          `
+        })
+        class MyComp {
+        }
+
+        TestBed.configureTestingModule({declarations: [MyComp, AddGlobalListener]});
+        const fixture = TestBed.createComponent(MyComp);
+        fixture.detectChanges();
+        const button = fixture.nativeElement.querySelector('button');
+        button.click();
+        fixture.detectChanges();
+        expect(clicks).toBe(1);
+      });
+
+  onlyInIvy('global event listeners on non-node host elements are supported only in Ivy')
+      .it('should bind global event listeners on an ng-template directive host', () => {
+        let clicks = 0;
+
+        @Directive({selector: '[add-global-listener]'})
+        class AddGlobalListener {
+          @HostListener('document:click')
+          handleClick() {
+            clicks++;
+          }
+        }
+
+        @Component({
+          template: `
+            <ng-template #template add-global-listener>
+              <button>Click me!</button>
+            </ng-template>
+
+            <ng-container [ngTemplateOutlet]="template"></ng-container>
+          `
+        })
+        class MyComp {
+        }
+
+        TestBed.configureTestingModule(
+            {declarations: [MyComp, AddGlobalListener], imports: [CommonModule]});
+        const fixture = TestBed.createComponent(MyComp);
+        fixture.detectChanges();
+        const button = fixture.nativeElement.querySelector('button');
+        button.click();
+        fixture.detectChanges();
+        expect(clicks).toBe(1);
+      });
+
+  onlyInIvy('global event listeners on non-node host elements are supported only in Ivy')
+      .it('should bind global event listeners on a structural directive host', () => {
+        let clicks = 0;
+
+        @Directive({selector: '[add-global-listener]'})
+        class AddGlobalListener implements OnInit {
+          @HostListener('document:click')
+          handleClick() {
+            clicks++;
+          }
+
+          constructor(private _vcr: ViewContainerRef, private _templateRef: TemplateRef<any>) {}
+
+          ngOnInit() {
+            this._vcr.createEmbeddedView(this._templateRef);
+          }
+        }
+
+        @Component({
+          template: `
+            <div *add-global-listener>
+              <button>Click me!</button>
+            </div>
+          `
+        })
+        class MyComp {
+        }
+
+        TestBed.configureTestingModule({declarations: [MyComp, AddGlobalListener]});
+        const fixture = TestBed.createComponent(MyComp);
+        fixture.detectChanges();
+        const button = fixture.nativeElement.querySelector('button');
+        button.click();
+        fixture.detectChanges();
+        expect(clicks).toBe(1);
+      });
+
   onlyInIvy('issue has only been resolved for Ivy')
       .it('should be able to access a property called $event using `this`', () => {
         let eventVariable: number|undefined;
@@ -425,4 +528,28 @@ describe('event listeners', () => {
         expect(eventVariable).toBe(10);
         expect(eventObject?.type).toBe('click');
       });
+
+  it('should be able to use a keyed write on `this` from a listener inside an ng-template', () => {
+    @Component({
+      template: `
+        <ng-template #template>
+          <button (click)="this['mes' + 'sage'] = 'hello'">Click me</button>
+        </ng-template>
+
+        <ng-container [ngTemplateOutlet]="template"></ng-container>
+      `
+    })
+    class MyComp {
+      message = '';
+    }
+
+    TestBed.configureTestingModule({declarations: [MyComp], imports: [CommonModule]});
+    const fixture = TestBed.createComponent(MyComp);
+    fixture.detectChanges();
+    const button = fixture.nativeElement.querySelector('button');
+    button.click();
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.message).toBe('hello');
+  });
 });

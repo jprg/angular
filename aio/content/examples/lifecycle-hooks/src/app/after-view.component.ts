@@ -9,9 +9,9 @@ import { LoggerService } from './logger.service';
   selector: 'after-view',
 // #docregion template
   template: `
-    <div>-- child view begins --</div>
+    <div>child view begins</div>
       <app-child-view></app-child-view>
-    <div>-- child view ends --</div>`
+    <div>child view ends</div>`
 // #enddocregion template
    + `
     <p *ngIf="comment" class="comment">
@@ -27,7 +27,7 @@ export class AfterViewComponent implements  AfterViewChecked, AfterViewInit {
   private prevHero = '';
 
   // Query for a VIEW child of type `ChildViewComponent`
-  @ViewChild(ChildViewComponent) viewChild: ChildViewComponent;
+  @ViewChild(ChildViewComponent) viewChild!: ChildViewComponent;
 
   // #enddocregion hooks
   constructor(private logger: LoggerService) {

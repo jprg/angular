@@ -13,7 +13,7 @@ import {absoluteFrom, AbsoluteFsPath, getSourceFileOrError, LogicalFileSystem} f
 import {TestFile} from '../../file_system/testing';
 import {AbsoluteModuleStrategy, LocalIdentifierStrategy, LogicalProjectStrategy, ModuleResolver, Reexport, Reference, ReferenceEmitter, RelativePathStrategy} from '../../imports';
 import {NOOP_INCREMENTAL_BUILD} from '../../incremental';
-import {ClassPropertyMapping, CompoundMetadataReader} from '../../metadata';
+import {ClassPropertyMapping, CompoundMetadataReader, MetaType} from '../../metadata';
 import {NOOP_PERF_RECORDER} from '../../perf';
 import {TsCreateProgramDriver} from '../../program_driver';
 import {ClassDeclaration, isNamedClassDeclaration, TypeScriptReflectionHost} from '../../reflection';
@@ -28,7 +28,7 @@ import {DomSchemaChecker} from '../src/dom';
 import {Environment} from '../src/environment';
 import {OutOfBandDiagnosticRecorder} from '../src/oob';
 import {TypeCheckShimGenerator} from '../src/shim';
-import {generateTypeCheckBlock} from '../src/type_check_block';
+import {generateTypeCheckBlock, TcbGenericContextBehavior} from '../src/type_check_block';
 import {TypeCheckFile} from '../src/type_check_file';
 
 export function typescriptLibDts(): TestFile {
@@ -44,6 +44,7 @@ export function typescriptLibDts(): TestFile {
         call(...args: any[]): any;
       }
       declare interface Array<T> {
+        [index: number]: T;
         length: number;
       }
       declare interface String {
@@ -290,13 +291,9 @@ export function tcb(
 
   const env = new TypeCheckFile(fileName, fullConfig, refEmmiter, reflectionHost, host);
 
-  const ref = new Reference(clazz);
-
-  const tcb = generateTypeCheckBlock(
-      env, ref, ts.createIdentifier('Test_TCB'), meta, new NoopSchemaChecker(),
-      new NoopOobRecorder());
-
-  env.addTypeCheckBlock(ref, meta, new NoopSchemaChecker(), new NoopOobRecorder());
+  env.addTypeCheckBlock(
+      new Reference(clazz), meta, new NoopSchemaChecker(), new NoopOobRecorder(),
+      TcbGenericContextBehavior.UseEmitter);
 
   const rendered = env.render(!options.emitSpans /* removeComments */);
   return rendered.replace(/\s+/g, ' ');
@@ -599,6 +596,7 @@ function makeScope(program: ts.Program, sf: ts.SourceFile, decls: TestDeclaratio
 
     if (decl.type === 'directive') {
       scope.directives.push({
+        type: MetaType.Directive,
         ref: new Reference(declClass),
         baseClass: null,
         name: decl.name,
@@ -622,8 +620,10 @@ function makeScope(program: ts.Program, sf: ts.SourceFile, decls: TestDeclaratio
       });
     } else if (decl.type === 'pipe') {
       scope.pipes.push({
+        type: MetaType.Pipe,
         ref: new Reference(declClass),
         name: decl.pipeName,
+        nameExpr: null,
       });
     }
   }

@@ -60,7 +60,7 @@ Angular executes hook methods in the following sequence. You can use them to per
     </td>
     <td>
 
-      Called before `ngOnInit()` and whenever one or more data-bound input properties change.
+      Called before `ngOnInit()` (if the component has bound inputs) and whenever one or more data-bound input properties change.
 
       Note that if your component has no inputs or you use it without providing any inputs, the framework will not call `ngOnChanges()`.
 
@@ -79,7 +79,7 @@ Angular executes hook methods in the following sequence. You can use them to per
     </td>
     <td>
 
-      Called once, after the first `ngOnChanges()`.
+      Called once, after the first `ngOnChanges()`. `ngOnInit()` is still called even when `ngOnChanges()` is not (which is the case when there are no template-bound inputs).
 
     </td>
   </tr>
@@ -385,7 +385,7 @@ You can't touch the implementation of a native `<div>`, or modify a third party 
 You can, however watch these elements with a directive.
 
 The directive defines `ngOnInit()` and `ngOnDestroy()` hooks
-that log messages to the parent via an injected `LoggerService`.
+that log messages to the parent using an injected `LoggerService`.
 
 <code-example path="lifecycle-hooks/src/app/spy.directive.ts" region="spy-directive" header="src/app/spy.directive.ts"></code-example>
 
@@ -395,14 +395,7 @@ Here it is attached to the repeated hero `<div>`:
 
 <code-example path="lifecycle-hooks/src/app/spy.component.html" region="template" header="src/app/spy.component.html"></code-example>
 
-Each spy's creation and destruction marks the appearance and disappearance of the attached hero `<div>`
-with an entry in the *Hook Log* as seen here:
-
-<div class="lightbox">
-  <img src='generated/images/guide/lifecycle-hooks/spy-directive.gif' alt="Spy Directive">
-</div>
-
-Adding a hero results in a new hero `<div>`. The spy's `ngOnInit()` logs that event.
+Each spy's creation and destruction marks the appearance and disappearance of the attached hero `<div>` with an entry in the *Hook Log*. Adding a hero results in a new hero `<div>`. The spy's `ngOnInit()` logs that event.
 
 The *Reset* button clears the `heroes` list.
 Angular removes all hero `<div>` elements from the DOM and destroys their spy directives at the same time.
@@ -471,7 +464,7 @@ The `AfterViewComponent` displays this child view *within its template*:
 <code-example path="lifecycle-hooks/src/app/after-view.component.ts" region="template" header="AfterViewComponent (template)"></code-example>
 
 The following hooks take action based on changing values *within the child view*,
-which can only be reached by querying for the child view via the property decorated with
+which can only be reached by querying for the child view using the property decorated with
 [@ViewChild](api/core/ViewChild).
 
 <code-example path="lifecycle-hooks/src/app/after-view.component.ts" region="hooks" header="AfterViewComponent (class excerpts)"></code-example>
@@ -559,7 +552,7 @@ appear *within* the component's template.
 projected into the component.
 
 The following *AfterContent* hooks take action based on changing values in a *content child*,
-which can only be reached by querying for them via the property decorated with
+which can only be reached by querying for them using the property decorated with
 [@ContentChild](api/core/ContentChild).
 
 <code-example path="lifecycle-hooks/src/app/after-content.component.ts" region="hooks" header="AfterContentComponent (class excerpts)"></code-example>

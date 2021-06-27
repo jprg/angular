@@ -9,7 +9,7 @@ As users access your application's features, the browser needs to render only th
 To define how users navigate through your application, you use routes. You can add routes to define how users navigate from one part of your application to another.
 You can also configure routes to guard against unexpected or unauthorized behavior.
 
-To explore a sample app featuring the contents of this tutorial, see the <live-example></live-example>.
+To explore a sample application featuring the contents of this tutorial, see the <live-example></live-example>.
 
 ## Objectives
 
@@ -118,7 +118,7 @@ what component your application should display for that path.
    <code-example header="src/app/app.module.ts" path="router-tutorial/src/app/app.module.ts" region="import-basic"></code-example>
 
 This code adds the `RouterModule` to the `imports` array. Next, the code uses the `forRoot()` method of the `RouterModule` to
-define your two routes. This method takes an array of JavaScript objects, with each object defining the proprties of a route.
+define your two routes. This method takes an array of JavaScript objects, with each object defining the properties of a route.
 The `forRoot()` method ensures that your application only instantiates one `RouterModule`. For more information, see
 [Singleton Services](/guide/singleton-services#forroot-and-the-router).
 

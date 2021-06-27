@@ -7,6 +7,7 @@ import { MatSidenav } from '@angular/material/sidenav';
 import { By, Title } from '@angular/platform-browser';
 import { ElementsLoader } from 'app/custom-elements/elements-loader';
 import { DocumentService } from 'app/documents/document.service';
+import { CookiesPopupComponent } from 'app/layout/cookies-popup/cookies-popup.component';
 import { DocViewerComponent } from 'app/layout/doc-viewer/doc-viewer.component';
 import { CurrentNodes } from 'app/navigation/navigation.model';
 import { NavigationNode, NavigationService } from 'app/navigation/navigation.service';
@@ -701,6 +702,13 @@ describe('AppComponent', () => {
       });
     });
 
+    describe('aio-cookies-popup', () => {
+      it('should have a cookies popup', () => {
+        const cookiesPopupDe = fixture.debugElement.query(By.directive(CookiesPopupComponent));
+        expect(cookiesPopupDe.componentInstance).toBeInstanceOf(CookiesPopupComponent);
+      });
+    });
+
     describe('deployment banner', () => {
       it('should show a message if the deployment mode is "archive"', async () => {
         createTestingModule('a/b', 'archive');
@@ -1120,8 +1128,9 @@ describe('AppComponent', () => {
         const host = fixture.debugElement;
         const classes: string = host.properties.className;
         const classArray = classes.split(' ').filter(c => c.indexOf(`${type}-`) === 0);
-        expect(classArray.length).toBeLessThanOrEqual(1, `"${classes}" should have only one class matching ${type}-*`);
-        expect(classArray).toEqual([`${type}-${value}`], `"${classes}" should contain ${type}-${value}`);
+        expect(classArray.length).withContext(`"${classes}" should have only one class matching ${type}-*`)
+            .toBeLessThanOrEqual(1);
+        expect(classArray).withContext(`"${classes}" should contain ${type}-${value}`).toEqual([`${type}-${value}`]);
       }
     });
 

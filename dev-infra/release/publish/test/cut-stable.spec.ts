@@ -70,7 +70,16 @@ describe('cut stable action', () => {
       latest: new ReleaseTrain('10.0.x', parse('10.0.3')),
     });
 
-    await expectStagingAndPublishWithCherryPick(action, '11.0.x', '11.0.0', 'latest');
+    // Ensure that the NPM dist tag is set only for packages that were available in the previous
+    // major version. A spy has already been installed on the function.
+    (externalCommands.invokeSetNpmDistCommand as jasmine.Spy).and.callFake(() => {
+      expect(action.gitClient.head.ref?.name).toBe('10.0.x');
+      return Promise.resolve();
+    });
+
+    // Major is released to the `next` NPM dist tag initially. Can be re-tagged with
+    // a separate release action. See `CutStableAction` for more details.
+    await expectStagingAndPublishWithCherryPick(action, '11.0.x', '11.0.0', 'next');
     expect(externalCommands.invokeSetNpmDistCommand).toHaveBeenCalledTimes(1);
     expect(externalCommands.invokeSetNpmDistCommand)
         .toHaveBeenCalledWith('v10-lts', matchesVersion('10.0.3'));

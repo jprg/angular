@@ -36,6 +36,18 @@ export class PullRequestFailure {
     return new this(`Not marked as merge ready.`);
   }
 
+  static isDraft() {
+    return new this('Pull request is still in draft.');
+  }
+
+  static isClosed() {
+    return new this('Pull request is already closed.');
+  }
+
+  static isMerged() {
+    return new this('Pull request is already merged.');
+  }
+
   static mismatchingTargetBranch(allowedBranches: string[]) {
     return new this(
         `Pull request is set to wrong base branch. Please update the PR in the Github UI ` +
@@ -81,10 +93,29 @@ export class PullRequestFailure {
     return new this(message);
   }
 
+  static hasDeprecations(label: TargetLabel) {
+    const message = `Cannot merge into branch for "${label.pattern}" as the pull request ` +
+        `contains deprecations. Deprecations can only be merged with the "target: minor" or ` +
+        `"target: major" label.`;
+    return new this(message);
+  }
+
   static hasFeatureCommits(label: TargetLabel) {
     const message = `Cannot merge into branch for "${label.pattern}" as the pull request has ` +
         'commits with the "feat" type. New features can only be merged with the "target: minor" ' +
         'or "target: major" label.';
+    return new this(message);
+  }
+
+  static missingBreakingChangeLabel() {
+    const message = 'Pull Request has at least one commit containing a breaking change note, but ' +
+        'does not have a breaking change label.';
+    return new this(message);
+  }
+
+  static missingBreakingChangeCommit() {
+    const message = 'Pull Request has a breaking change label, but does not contain any commits ' +
+        'with breaking change notes.';
     return new this(message);
   }
 }

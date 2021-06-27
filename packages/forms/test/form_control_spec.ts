@@ -7,7 +7,6 @@
  */
 
 import {fakeAsync, tick} from '@angular/core/testing';
-import {AsyncTestCompleter, beforeEach, describe, inject, it} from '@angular/core/testing/src/testing_internal';
 import {FormControl, FormGroup, Validators} from '@angular/forms';
 
 import {FormArray} from '@angular/forms/src/model';
@@ -857,17 +856,16 @@ describe('FormControl', () => {
       c = new FormControl('old', Validators.required);
     });
 
-    it('should fire an event after the value has been updated',
-       inject([AsyncTestCompleter], (async: AsyncTestCompleter) => {
-         c.valueChanges.subscribe({
-           next: (value: any) => {
-             expect(c.value).toEqual('new');
-             expect(value).toEqual('new');
-             async.done();
-           }
-         });
-         c.setValue('new');
-       }));
+    it('should fire an event after the value has been updated', done => {
+      c.valueChanges.subscribe({
+        next: (value: any) => {
+          expect(c.value).toEqual('new');
+          expect(value).toEqual('new');
+          done();
+        }
+      });
+      c.setValue('new');
+    });
 
     it('should fire an event after the status has been updated to invalid', fakeAsync(() => {
          c.statusChanges.subscribe({
@@ -879,6 +877,22 @@ describe('FormControl', () => {
 
          c.setValue('');
          tick();
+       }));
+
+    it('should fire statusChanges events for async validators added via options object',
+       fakeAsync(() => {
+         // The behavior can be tested for each of the model types.
+         let statuses: string[] = [];
+
+         // Create a form control with an async validator added via options object.
+         const asc = new FormControl('', {asyncValidators: [() => Promise.resolve(null)]});
+
+         // Subscribe to status changes.
+         asc.statusChanges.subscribe((status: any) => statuses.push(status));
+
+         // After a tick, the async validator should change status PENDING -> VALID.
+         tick();
+         expect(statuses).toEqual(['VALID']);
        }));
 
     it('should fire an event after the status has been updated to pending', fakeAsync(() => {
@@ -911,27 +925,25 @@ describe('FormControl', () => {
        }));
 
     // TODO: remove the if statement after making observable delivery sync
-    it('should update set errors and status before emitting an event',
-       inject([AsyncTestCompleter], (async: AsyncTestCompleter) => {
-         c.valueChanges.subscribe((value: any /** TODO #9100 */) => {
-           expect(c.valid).toEqual(false);
-           expect(c.errors).toEqual({'required': true});
-           async.done();
-         });
-         c.setValue('');
-       }));
+    it('should update set errors and status before emitting an event', done => {
+      c.valueChanges.subscribe((value: any /** TODO #9100 */) => {
+        expect(c.valid).toEqual(false);
+        expect(c.errors).toEqual({'required': true});
+        done();
+      });
+      c.setValue('');
+    });
 
-    it('should return a cold observable',
-       inject([AsyncTestCompleter], (async: AsyncTestCompleter) => {
-         c.setValue('will be ignored');
-         c.valueChanges.subscribe({
-           next: (value: any) => {
-             expect(value).toEqual('new');
-             async.done();
-           }
-         });
-         c.setValue('new');
-       }));
+    it('should return a cold observable', done => {
+      c.setValue('will be ignored');
+      c.valueChanges.subscribe({
+        next: (value: any) => {
+          expect(value).toEqual('new');
+          done();
+        }
+      });
+      c.setValue('new');
+    });
   });
 
   describe('setErrors', () => {

@@ -26,7 +26,9 @@ import {CompilerFactory} from './compiler_factory';
 import {CompletionBuilder, CompletionNodeContext} from './completions';
 import {DefinitionBuilder} from './definitions';
 import {QuickInfoBuilder} from './quick_info';
-import {ReferencesAndRenameBuilder} from './references';
+import {ReferencesBuilder, RenameBuilder} from './references_and_rename';
+import {createLocationKey} from './references_and_rename_utils';
+import {getSignatureHelp} from './signature_help';
 import {getTargetAtPosition, TargetContext, TargetNodeKind} from './template_target';
 import {findTightestNode, getClassDeclFromDecoratorProp, getPropertyAssignmentFromValue} from './ts_utils';
 import {getTemplateInfoAtPosition, isTypeScriptFile} from './utils';
@@ -116,7 +118,7 @@ export class LanguageService {
       if (!isInAngularContext(compiler.getCurrentProgram(), fileName, position)) {
         return undefined;
       }
-      return new DefinitionBuilder(this.tsLS, compiler)
+      return new DefinitionBuilder(this.tsLS, compiler, this.programDriver)
           .getDefinitionAndBoundSpan(fileName, position);
     });
   }
@@ -127,7 +129,7 @@ export class LanguageService {
       if (!isTemplateContext(compiler.getCurrentProgram(), fileName, position)) {
         return undefined;
       }
-      return new DefinitionBuilder(this.tsLS, compiler)
+      return new DefinitionBuilder(this.tsLS, compiler, this.programDriver)
           .getTypeDefinitionsAtPosition(fileName, position);
     });
   }
@@ -167,14 +169,15 @@ export class LanguageService {
 
   getReferencesAtPosition(fileName: string, position: number): ts.ReferenceEntry[]|undefined {
     return this.withCompilerAndPerfTracing(PerfPhase.LsReferencesAndRenames, (compiler) => {
-      return new ReferencesAndRenameBuilder(this.programDriver, this.tsLS, compiler)
-          .getReferencesAtPosition(fileName, position);
+      const results = new ReferencesBuilder(this.programDriver, this.tsLS, compiler)
+                          .getReferencesAtPosition(fileName, position);
+      return results === undefined ? undefined : getUniqueLocations(results);
     });
   }
 
   getRenameInfo(fileName: string, position: number): ts.RenameInfo {
     return this.withCompilerAndPerfTracing(PerfPhase.LsReferencesAndRenames, (compiler) => {
-      const renameInfo = new ReferencesAndRenameBuilder(this.programDriver, this.tsLS, compiler)
+      const renameInfo = new RenameBuilder(this.programDriver, this.tsLS, compiler)
                              .getRenameInfo(absoluteFrom(fileName), position);
       if (!renameInfo.canRename) {
         return renameInfo;
@@ -190,8 +193,9 @@ export class LanguageService {
 
   findRenameLocations(fileName: string, position: number): readonly ts.RenameLocation[]|undefined {
     return this.withCompilerAndPerfTracing(PerfPhase.LsReferencesAndRenames, (compiler) => {
-      return new ReferencesAndRenameBuilder(this.programDriver, this.tsLS, compiler)
-          .findRenameLocations(fileName, position);
+      const results = new RenameBuilder(this.programDriver, this.tsLS, compiler)
+                          .findRenameLocations(fileName, position);
+      return results === null ? undefined : getUniqueLocations(results);
     });
   }
 
@@ -240,7 +244,8 @@ export class LanguageService {
   getCompletionEntryDetails(
       fileName: string, position: number, entryName: string,
       formatOptions: ts.FormatCodeOptions|ts.FormatCodeSettings|undefined,
-      preferences: ts.UserPreferences|undefined): ts.CompletionEntryDetails|undefined {
+      preferences: ts.UserPreferences|undefined,
+      data: ts.CompletionEntryData|undefined): ts.CompletionEntryDetails|undefined {
     return this.withCompilerAndPerfTracing(PerfPhase.LsCompletions, (compiler) => {
       if (!isTemplateContext(compiler.getCurrentProgram(), fileName, position)) {
         return undefined;
@@ -250,7 +255,20 @@ export class LanguageService {
       if (builder === null) {
         return undefined;
       }
-      return builder.getCompletionEntryDetails(entryName, formatOptions, preferences);
+      return builder.getCompletionEntryDetails(entryName, formatOptions, preferences, data);
+    });
+  }
+
+  getSignatureHelpItems(fileName: string, position: number, options?: ts.SignatureHelpItemsOptions):
+      ts.SignatureHelpItems|undefined {
+    return this.withCompilerAndPerfTracing(PerfPhase.LsSignatureHelp, compiler => {
+      if (!isTemplateContext(compiler.getCurrentProgram(), fileName, position)) {
+        return undefined;
+      }
+
+      return getSignatureHelp(compiler, this.tsLS, fileName, position, options);
+
+      return undefined;
     });
   }
 
@@ -473,6 +491,9 @@ function createProgramDriver(project: ts.server.Project): ProgramDriver {
         scriptInfo.editContent(0, length, newText);
       }
     },
+    getSourceFileVersion(sf: ts.SourceFile): string {
+      return project.getScriptVersion(sf.fileName);
+    }
   };
 }
 
@@ -546,4 +567,12 @@ function findTightestNodeAtPosition(program: ts.Program, fileName: string, posit
   }
 
   return findTightestNode(sourceFile, position);
+}
+
+function getUniqueLocations<T extends ts.DocumentSpan>(locations: readonly T[]): T[] {
+  const uniqueLocations: Map<string, T> = new Map();
+  for (const location of locations) {
+    uniqueLocations.set(createLocationKey(location), location);
+  }
+  return Array.from(uniqueLocations.values());
 }

@@ -48,9 +48,9 @@ runInEachFileSystem(() => {
         }]);
         const project1Conf = new NgccConfiguration(fs, project1);
         const expectedProject1Config =
-            `{"packages":{"package-1":[{"entryPoints":{"./entry-point-1":{}},"versionRange":"*"}]},"locking":{}}`;
+            `{"packages":{"package-1":[{"entryPoints":{"./entry-point-1":{}},"versionRange":"*"}]},"locking":{},"hashAlgorithm":"sha256"}`;
         expect(project1Conf.hash)
-            .toEqual(createHash('md5').update(expectedProject1Config).digest('hex'));
+            .toEqual(createHash('sha256').update(expectedProject1Config).digest('hex'));
 
         const project2 = _Abs('/project-2');
         const project2Config = fs.resolve(project2, 'ngcc.config.js');
@@ -66,18 +66,41 @@ runInEachFileSystem(() => {
         }]);
         const project2Conf = new NgccConfiguration(fs, project2);
         const expectedProject2Config =
-            `{"packages":{"package-1":[{"entryPoints":{"./entry-point-1":{"ignore":true}},"versionRange":"*"}]},"locking":{}}`;
+            `{"packages":{"package-1":[{"entryPoints":{"./entry-point-1":{"ignore":true}},"versionRange":"*"}]},"locking":{},"hashAlgorithm":"sha256"}`;
         expect(project2Conf.hash)
-            .toEqual(createHash('md5').update(expectedProject2Config).digest('hex'));
+            .toEqual(createHash('sha256').update(expectedProject2Config).digest('hex'));
       });
 
       it('should compute a hash even if there is no project configuration', () => {
         loadTestFiles([{name: _Abs('/project-1/empty.js'), contents: ``}]);
         const configuration = new NgccConfiguration(fs, _Abs('/project-1'));
         expect(configuration.hash)
-            .toEqual(createHash('md5')
-                         .update(JSON.stringify({packages: {}, locking: {}}))
-                         .digest('hex'));
+            .toEqual(
+                createHash('sha256')
+                    .update(JSON.stringify({packages: {}, locking: {}, hashAlgorithm: 'sha256'}))
+                    .digest('hex'));
+      });
+
+      it('should use a custom hash algorithm if specified in the config', () => {
+        const project1 = _Abs('/project-1');
+        const project1Config = fs.resolve(project1, 'ngcc.config.js');
+
+        loadTestFiles([{
+          name: project1Config,
+          contents: `
+            module.exports = {
+              packages: {
+                'package-1': {entryPoints: {'./entry-point-1': {}}},
+              },
+              hashAlgorithm: 'md5',
+            };`
+        }]);
+        const project1Conf = new NgccConfiguration(fs, project1);
+        const expectedProject1Config =
+            `{"packages":{"package-1":[{"entryPoints":{"./entry-point-1":{}},"versionRange":"*"}]},"locking":{},"hashAlgorithm":"md5"}`;
+        expect(JSON.stringify((project1Conf as any).projectConfig)).toEqual(expectedProject1Config);
+        expect(project1Conf.hash)
+            .toEqual(createHash('md5').update(expectedProject1Config).digest('hex'));
       });
     });
 

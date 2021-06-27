@@ -6,34 +6,34 @@
  * found in the LICENSE file at https://angular.io/license
  */
 
-import {types as graphQLTypes} from 'typed-graphqlify';
+import {types as graphqlTypes} from 'typed-graphqlify';
 
 import {Commit} from '../../commit-message/parse';
 import {getCommitsInRange} from '../../commit-message/utils';
 import {getConfig, NgDevConfig} from '../../utils/config';
 import {error, info, promptConfirm} from '../../utils/console';
+import {AuthenticatedGitClient} from '../../utils/git/authenticated-git-client';
 import {addTokenToGitHttpsUrl} from '../../utils/git/github-urls';
-import {GitClient} from '../../utils/git/index';
 import {getPr} from '../../utils/github';
 
-/* GraphQL schema for the response body for each pending PR. */
+/* Graphql schema for the response body for each pending PR. */
 const PR_SCHEMA = {
-  state: graphQLTypes.string,
-  maintainerCanModify: graphQLTypes.boolean,
-  viewerDidAuthor: graphQLTypes.boolean,
-  headRefOid: graphQLTypes.string,
+  state: graphqlTypes.string,
+  maintainerCanModify: graphqlTypes.boolean,
+  viewerDidAuthor: graphqlTypes.boolean,
+  headRefOid: graphqlTypes.string,
   headRef: {
-    name: graphQLTypes.string,
+    name: graphqlTypes.string,
     repository: {
-      url: graphQLTypes.string,
-      nameWithOwner: graphQLTypes.string,
+      url: graphqlTypes.string,
+      nameWithOwner: graphqlTypes.string,
     },
   },
   baseRef: {
-    name: graphQLTypes.string,
+    name: graphqlTypes.string,
     repository: {
-      url: graphQLTypes.string,
-      nameWithOwner: graphQLTypes.string,
+      url: graphqlTypes.string,
+      nameWithOwner: graphqlTypes.string,
     },
   },
 };
@@ -44,9 +44,9 @@ const PR_SCHEMA = {
  */
 export async function rebasePr(
     prNumber: number, githubToken: string, config: Pick<NgDevConfig, 'github'> = getConfig()) {
-  const git = new GitClient(githubToken);
-  // TODO: Rely on a common assertNoLocalChanges function.
-  if (git.hasLocalChanges()) {
+  /** The singleton instance of the authenticated git client. */
+  const git = AuthenticatedGitClient.get();
+  if (git.hasUncommittedChanges()) {
     error('Cannot perform rebase of PR with local changes.');
     process.exit(1);
   }

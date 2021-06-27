@@ -7,9 +7,15 @@
  */
 
 import {graphql} from '@octokit/graphql';
-import * as Octokit from '@octokit/rest';
+import {Octokit} from '@octokit/rest';
 import {RequestParameters} from '@octokit/types';
-import {query, types} from 'typed-graphqlify';
+import {query} from 'typed-graphqlify';
+
+/**
+ * An object representation of a Graphql Query to be used as a response type and
+ * to generate a Graphql query string.
+ */
+export type GraphqlQueryObject = Parameters<typeof query>[1];
 
 /** Interface describing a Github repository. */
 export interface GithubRepo {
@@ -26,70 +32,36 @@ export class GithubApiRequestError extends Error {
   }
 }
 
-/**
- * A Github client for interacting with the Github APIs.
- *
- * Additionally, provides convenience methods for actions which require multiple requests, or
- * would provide value from memoized style responses.
- **/
-export class GithubClient extends Octokit {
-  /** The Github GraphQL (v4) API. */
-  graphql: GithubGraphqlClient;
+/** A Github client for interacting with the Github APIs. */
+export class GithubClient {
+  /** The octokit instance actually performing API requests. */
+  private _octokit = new Octokit(this._octokitOptions);
 
-  /** The current user based on checking against the Github API. */
-  private _currentUser: string|null = null;
+  readonly pulls = this._octokit.pulls;
+  readonly repos = this._octokit.repos;
+  readonly issues = this._octokit.issues;
+  readonly git = this._octokit.git;
+  readonly paginate = this._octokit.paginate;
+  readonly rateLimit = this._octokit.rateLimit;
 
-  constructor(token?: string) {
-    // Pass in authentication token to base Octokit class.
-    super({auth: token});
-
-    this.hook.error('request', error => {
-      // Wrap API errors in a known error class. This allows us to
-      // expect Github API errors better and in a non-ambiguous way.
-      throw new GithubApiRequestError(error.status, error.message);
-    });
-
-    // Create authenticated graphql client.
-    this.graphql = new GithubGraphqlClient(token);
-  }
-
-  /** Retrieve the login of the current user from Github. */
-  async getCurrentUser() {
-    // If the current user has already been retrieved return the current user value again.
-    if (this._currentUser !== null) {
-      return this._currentUser;
-    }
-    const result = await this.graphql.query({
-      viewer: {
-        login: types.string,
-      }
-    });
-    return this._currentUser = result.viewer.login;
-  }
+  constructor(private _octokitOptions?: Octokit.Options) {}
 }
 
 /**
- * An object representation of a GraphQL Query to be used as a response type and
- * to generate a GraphQL query string.
+ * Extension of the `GithubClient` that provides utilities which are specific
+ * to authenticated instances.
  */
-export type GraphQLQueryObject = Parameters<typeof query>[1];
+export class AuthenticatedGithubClient extends GithubClient {
+  /** The graphql instance with authentication set during construction. */
+  private _graphql = graphql.defaults({headers: {authorization: `token ${this._token}`}});
 
-/** A client for interacting with Github's GraphQL API. */
-export class GithubGraphqlClient {
-  /** The Github GraphQL (v4) API. */
-  private graqhql = graphql;
-
-  constructor(token?: string) {
-    // Set the default headers to include authorization with the provided token for all
-    // graphQL calls.
-    if (token) {
-      this.graqhql = this.graqhql.defaults({headers: {authorization: `token ${token}`}});
-    }
+  constructor(private _token: string) {
+    // Set the token for the octokit instance.
+    super({auth: _token});
   }
 
-  /** Perform a query using Github's GraphQL API. */
-  async query<T extends GraphQLQueryObject>(queryObject: T, params: RequestParameters = {}) {
-    const queryString = query(queryObject);
-    return (await this.graqhql(queryString, params)) as T;
+  /** Perform a query using Github's Graphql API. */
+  async graphql<T extends GraphqlQueryObject>(queryObject: T, params: RequestParameters = {}) {
+    return (await this._graphql(query(queryObject).toString(), params)) as T;
   }
 }

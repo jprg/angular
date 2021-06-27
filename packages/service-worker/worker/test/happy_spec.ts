@@ -14,7 +14,7 @@ import {sha1} from '../src/sha1';
 import {clearAllCaches, MockCache} from '../testing/cache';
 import {MockRequest, MockResponse} from '../testing/fetch';
 import {MockFileSystem, MockFileSystemBuilder, MockServerState, MockServerStateBuilder, tmpHashTableForFs} from '../testing/mock';
-import {SwTestHarness, SwTestHarnessBuilder} from '../testing/scope';
+import {MockClient, SwTestHarness, SwTestHarnessBuilder, WindowClientImpl} from '../testing/scope';
 
 (function() {
 // Skip environments that don't support the minimum APIs needed to run the SW tests.
@@ -304,7 +304,7 @@ describe('Driver', () => {
     brokenServer.reset();
 
     scope = new SwTestHarnessBuilder().withServerState(server).build();
-    driver = new Driver(scope, scope, new CacheDatabase(scope, scope));
+    driver = new Driver(scope, scope, new CacheDatabase(scope));
   });
 
   it('activates without waiting', async () => {
@@ -402,7 +402,8 @@ describe('Driver', () => {
     expect(driver['latestHash']).toBeNull();
 
     // Pushing a message initializes the driver (fetches assets).
-    await scope.handleMessage({action: 'foo'}, 'someClient');
+    scope.handleMessage({action: 'foo'}, 'someClient');
+    await new Promise(resolve => setTimeout(resolve));  // Wait for async operations to complete.
     expect(driver['latestHash']).toEqual(jasmine.any(String));
     server.assertSawRequestFor('/ngsw.json');
     server.assertSawRequestFor('/foo.txt');
@@ -538,7 +539,6 @@ describe('Driver', () => {
   it('handles empty client ID', async () => {
     // Initialize the SW.
     expect(await makeNavigationRequest(scope, '/foo/file1', '')).toEqual('this is foo');
-    expect(await makeNavigationRequest(scope, '/bar/file2', null)).toEqual('this is foo');
     await driver.initialized;
 
     // Update to a new version.
@@ -547,7 +547,6 @@ describe('Driver', () => {
 
     // Correctly handle navigation requests, even if `clientId` is null/empty.
     expect(await makeNavigationRequest(scope, '/foo/file1', '')).toEqual('this is foo v2');
-    expect(await makeNavigationRequest(scope, '/bar/file2', null)).toEqual('this is foo v2');
   });
 
   it('checks for updates on restart', async () => {
@@ -555,10 +554,10 @@ describe('Driver', () => {
     await driver.initialized;
 
     scope = new SwTestHarnessBuilder()
-                .withCacheState(scope.caches.dehydrate())
+                .withCacheState(scope.caches.original.dehydrate())
                 .withServerState(serverUpdate)
                 .build();
-    driver = new Driver(scope, scope, new CacheDatabase(scope, scope));
+    driver = new Driver(scope, scope, new CacheDatabase(scope));
     expect(await makeRequest(scope, '/foo.txt')).toEqual('this is foo');
     await driver.initialized;
     serverUpdate.assertNoOtherRequests();
@@ -611,10 +610,10 @@ describe('Driver', () => {
     serverUpdate.clearRequests();
 
     scope = new SwTestHarnessBuilder()
-                .withCacheState(scope.caches.dehydrate())
+                .withCacheState(scope.caches.original.dehydrate())
                 .withServerState(serverUpdate)
                 .build();
-    driver = new Driver(scope, scope, new CacheDatabase(scope, scope));
+    driver = new Driver(scope, scope, new CacheDatabase(scope));
 
     expect(await makeRequest(scope, '/foo.txt')).toEqual('this is foo');
     expect(await makeRequest(scope, '/foo.txt', 'new')).toEqual('this is foo v2');
@@ -673,16 +672,16 @@ describe('Driver', () => {
     await driver.initialized;
 
     scope = new SwTestHarnessBuilder()
-                .withCacheState(scope.caches.dehydrate())
+                .withCacheState(scope.caches.original.dehydrate())
                 .withServerState(serverUpdate)
                 .build();
-    driver = new Driver(scope, scope, new CacheDatabase(scope, scope));
+    driver = new Driver(scope, scope, new CacheDatabase(scope));
     expect(await makeRequest(scope, '/foo.txt')).toEqual('this is foo');
     await driver.initialized;
     serverUpdate.assertNoOtherRequests();
 
     let keys = await scope.caches.keys();
-    let hasOriginalCaches = keys.some(name => name.startsWith(`ngsw:/:${manifestHash}:`));
+    let hasOriginalCaches = keys.some(name => name.startsWith(`${manifestHash}:`));
     expect(hasOriginalCaches).toEqual(true);
 
     scope.clients.remove('default');
@@ -691,12 +690,48 @@ describe('Driver', () => {
     await driver.idle.empty;
     serverUpdate.clearRequests();
 
-    driver = new Driver(scope, scope, new CacheDatabase(scope, scope));
+    driver = new Driver(scope, scope, new CacheDatabase(scope));
     expect(await makeRequest(scope, '/foo.txt')).toEqual('this is foo v2');
 
     keys = await scope.caches.keys();
-    hasOriginalCaches = keys.some(name => name.startsWith(`ngsw:/:${manifestHash}:`));
+    hasOriginalCaches = keys.some(name => name.startsWith(`${manifestHash}:`));
     expect(hasOriginalCaches).toEqual(false);
+  });
+
+  it('cleans up properly when failing to load stored state', async () => {
+    // Initialize the SW and cache the original app-version.
+    expect(await makeRequest(scope, '/foo.txt')).toBe('this is foo');
+    await driver.initialized;
+
+    // Update and cache the updated app-version.
+    scope.updateServerState(serverUpdate);
+    expect(await driver.checkForUpdate()).toBeTrue();
+    expect(await makeRequest(scope, '/foo.txt', 'newClient')).toBe('this is foo v2');
+
+    // Verify both app-versions are stored in the cache.
+    let cacheNames = await scope.caches.keys();
+    let hasOriginalVersion = cacheNames.some(name => name.startsWith(`${manifestHash}:`));
+    let hasUpdatedVersion = cacheNames.some(name => name.startsWith(`${manifestUpdateHash}:`));
+    expect(hasOriginalVersion).withContext('Has caches for original version').toBeTrue();
+    expect(hasUpdatedVersion).withContext('Has caches for updated version').toBeTrue();
+
+    // Simulate failing to load the stored state (and thus starting from an empty state).
+    scope.caches.delete('db:control');
+    driver = new Driver(scope, scope, new CacheDatabase(scope));
+
+    expect(await makeRequest(scope, '/foo.txt')).toBe('this is foo v2');
+    await driver.initialized;
+
+    // Verify that the caches for the obsolete original version are cleaned up.
+    // await driver.cleanupCaches();
+    scope.advance(6000);
+    await driver.idle.empty;
+
+    cacheNames = await scope.caches.keys();
+    hasOriginalVersion = cacheNames.some(name => name.startsWith(`${manifestHash}:`));
+    hasUpdatedVersion = cacheNames.some(name => name.startsWith(`${manifestUpdateHash}:`));
+    expect(hasOriginalVersion).withContext('Has caches for original version').toBeFalse();
+    expect(hasUpdatedVersion).withContext('Has caches for updated version').toBeTrue();
   });
 
   it('shows notifications for push notifications', async () => {
@@ -723,30 +758,364 @@ describe('Driver', () => {
     }]);
   });
 
-  it('broadcasts notification click events with action', async () => {
-    expect(await makeRequest(scope, '/foo.txt')).toEqual('this is foo');
-    await driver.initialized;
-    await scope.handleClick(
-        {title: 'This is a test with action', body: 'Test body with action'}, 'button');
-    const message: any = scope.clients.getMock('default')!.messages[0];
+  describe('notification click events', () => {
+    it('broadcasts notification click events with action', async () => {
+      expect(await makeRequest(scope, '/foo.txt')).toEqual('this is foo');
+      await driver.initialized;
+      await scope.handleClick(
+          {title: 'This is a test with action', body: 'Test body with action'}, 'button');
+      const message: any = scope.clients.getMock('default')!.messages[0];
 
-    expect(message.type).toEqual('NOTIFICATION_CLICK');
-    expect(message.data.action).toEqual('button');
-    expect(message.data.notification.title).toEqual('This is a test with action');
-    expect(message.data.notification.body).toEqual('Test body with action');
-  });
+      expect(message.type).toEqual('NOTIFICATION_CLICK');
+      expect(message.data.action).toEqual('button');
+      expect(message.data.notification.title).toEqual('This is a test with action');
+      expect(message.data.notification.body).toEqual('Test body with action');
+    });
 
-  it('broadcasts notification click events without action', async () => {
-    expect(await makeRequest(scope, '/foo.txt')).toEqual('this is foo');
-    await driver.initialized;
-    await scope.handleClick(
-        {title: 'This is a test without action', body: 'Test body without action'});
-    const message: any = scope.clients.getMock('default')!.messages[0];
+    it('broadcasts notification click events without action', async () => {
+      expect(await makeRequest(scope, '/foo.txt')).toEqual('this is foo');
+      await driver.initialized;
+      await scope.handleClick({
+        title: 'This is a test without action',
+        body: 'Test body without action',
+      });
+      const message: any = scope.clients.getMock('default')!.messages[0];
 
-    expect(message.type).toEqual('NOTIFICATION_CLICK');
-    expect(message.data.action).toBeUndefined();
-    expect(message.data.notification.title).toEqual('This is a test without action');
-    expect(message.data.notification.body).toEqual('Test body without action');
+      expect(message.type).toEqual('NOTIFICATION_CLICK');
+      expect(message.data.action).toBeUndefined();
+      expect(message.data.notification.title).toEqual('This is a test without action');
+      expect(message.data.notification.body).toEqual('Test body without action');
+    });
+
+    describe('Client interactions', () => {
+      describe('`openWindow` operation', () => {
+        it('opens a new client window at url', async () => {
+          expect(await makeRequest(scope, '/foo.txt')).toEqual('this is foo');
+
+          spyOn(scope.clients, 'openWindow');
+          const url = 'foo';
+
+          await driver.initialized;
+          await scope.handleClick(
+              {
+                title: 'This is a test with url',
+                body: 'Test body with url',
+                data: {
+                  onActionClick: {
+                    foo: {operation: 'openWindow', url},
+                  },
+                },
+              },
+              'foo');
+          expect(scope.clients.openWindow)
+              .toHaveBeenCalledWith(`${scope.registration.scope}${url}`);
+        });
+
+        it('opens a new client window with `/` when no `url`', async () => {
+          expect(await makeRequest(scope, '/foo.txt')).toEqual('this is foo');
+
+          spyOn(scope.clients, 'openWindow');
+
+          await driver.initialized;
+          await scope.handleClick(
+              {
+                title: 'This is a test without url',
+                body: 'Test body without url',
+                data: {
+                  onActionClick: {
+                    foo: {operation: 'openWindow'},
+                  },
+                },
+              },
+              'foo');
+          expect(scope.clients.openWindow).toHaveBeenCalledWith(`${scope.registration.scope}`);
+        });
+      });
+
+      describe('`focusLastFocusedOrOpen` operation', () => {
+        it('focuses last client keeping previous url', async () => {
+          expect(await makeRequest(scope, '/foo.txt')).toEqual('this is foo');
+          const mockClient = new WindowClientImpl('fooBar');
+          spyOn(scope.clients, 'matchAll').and.returnValue(Promise.resolve([mockClient]));
+          spyOn(mockClient, 'focus');
+          spyOn(mockClient, 'navigate');
+          const url = 'foo';
+
+          await driver.initialized;
+          await scope.handleClick(
+              {
+                title: 'This is a test with operation focusLastFocusedOrOpen',
+                body: 'Test body with operation focusLastFocusedOrOpen',
+                data: {
+                  onActionClick: {
+                    foo: {operation: 'focusLastFocusedOrOpen', url},
+                  },
+                },
+              },
+              'foo');
+          expect(mockClient.navigate).not.toHaveBeenCalled();
+          expect(mockClient.url).toEqual('http://localhost/unique');
+          expect(mockClient.focus).toHaveBeenCalled();
+        });
+
+        it('falls back to openWindow at url when no last client to focus', async () => {
+          expect(await makeRequest(scope, '/foo.txt')).toEqual('this is foo');
+          spyOn(scope.clients, 'openWindow');
+          spyOn(scope.clients, 'matchAll').and.returnValue(Promise.resolve([]));
+          const url = 'foo';
+
+          await driver.initialized;
+          await scope.handleClick(
+              {
+                title: 'This is a test with operation focusLastFocusedOrOpen',
+                body: 'Test body with operation focusLastFocusedOrOpen',
+                data: {
+                  onActionClick: {
+                    foo: {operation: 'focusLastFocusedOrOpen', url},
+                  },
+                },
+              },
+              'foo');
+          expect(scope.clients.openWindow)
+              .toHaveBeenCalledWith(`${scope.registration.scope}${url}`);
+        });
+
+        it('falls back to openWindow at `/` when no last client and no `url`', async () => {
+          expect(await makeRequest(scope, '/foo.txt')).toEqual('this is foo');
+          spyOn(scope.clients, 'openWindow');
+          spyOn(scope.clients, 'matchAll').and.returnValue(Promise.resolve([]));
+
+          await driver.initialized;
+          await scope.handleClick(
+              {
+                title: 'This is a test with operation focusLastFocusedOrOpen',
+                body: 'Test body with operation focusLastFocusedOrOpen',
+                data: {
+                  onActionClick: {
+                    foo: {operation: 'focusLastFocusedOrOpen'},
+                  },
+                },
+              },
+              'foo');
+          expect(scope.clients.openWindow).toHaveBeenCalledWith(`${scope.registration.scope}`);
+        });
+      });
+
+      describe('`navigateLastFocusedOrOpen` operation', () => {
+        it('navigates last client to `url`', async () => {
+          expect(await makeRequest(scope, '/foo.txt')).toEqual('this is foo');
+          const mockClient = new WindowClientImpl('fooBar');
+          spyOn(scope.clients, 'matchAll').and.returnValue(Promise.resolve([mockClient]));
+          spyOn(mockClient, 'focus');
+          spyOn(mockClient, 'navigate').and.returnValue(Promise.resolve(mockClient));
+          const url = 'foo';
+
+          await driver.initialized;
+          await scope.handleClick(
+              {
+                title: 'This is a test with operation navigateLastFocusedOrOpen',
+                body: 'Test body with operation navigateLastFocusedOrOpen',
+                data: {
+                  onActionClick: {
+                    foo: {operation: 'navigateLastFocusedOrOpen', url},
+                  },
+                },
+              },
+              'foo');
+          expect(mockClient.navigate).toHaveBeenCalledWith(`${scope.registration.scope}${url}`);
+          expect(mockClient.focus).toHaveBeenCalled();
+        });
+
+        it('navigates last client to `/` if no `url', async () => {
+          expect(await makeRequest(scope, '/foo.txt')).toEqual('this is foo');
+          const mockClient = new WindowClientImpl('fooBar');
+          spyOn(scope.clients, 'matchAll').and.returnValue(Promise.resolve([mockClient]));
+          spyOn(mockClient, 'focus');
+          spyOn(mockClient, 'navigate').and.returnValue(Promise.resolve(mockClient));
+
+          await driver.initialized;
+          await scope.handleClick(
+              {
+                title: 'This is a test with operation navigateLastFocusedOrOpen',
+                body: 'Test body with operation navigateLastFocusedOrOpen',
+                data: {
+                  onActionClick: {
+                    foo: {operation: 'navigateLastFocusedOrOpen'},
+                  },
+                },
+              },
+              'foo');
+          expect(mockClient.navigate).toHaveBeenCalledWith(`${scope.registration.scope}`);
+          expect(mockClient.focus).toHaveBeenCalled();
+        });
+
+        it('falls back to openWindow at url when no last client to focus', async () => {
+          expect(await makeRequest(scope, '/foo.txt')).toEqual('this is foo');
+          spyOn(scope.clients, 'openWindow');
+          spyOn(scope.clients, 'matchAll').and.returnValue(Promise.resolve([]));
+          const url = 'foo';
+
+          await driver.initialized;
+          await scope.handleClick(
+              {
+                title: 'This is a test with operation navigateLastFocusedOrOpen',
+                body: 'Test body with operation navigateLastFocusedOrOpen',
+                data: {
+                  onActionClick: {
+                    foo: {operation: 'navigateLastFocusedOrOpen', url},
+                  },
+                },
+              },
+              'foo');
+          expect(scope.clients.openWindow)
+              .toHaveBeenCalledWith(`${scope.registration.scope}${url}`);
+        });
+
+        it('falls back to openWindow at `/` when no last client and no `url`', async () => {
+          expect(await makeRequest(scope, '/foo.txt')).toEqual('this is foo');
+          spyOn(scope.clients, 'openWindow');
+          spyOn(scope.clients, 'matchAll').and.returnValue(Promise.resolve([]));
+
+          await driver.initialized;
+          await scope.handleClick(
+              {
+                title: 'This is a test with operation navigateLastFocusedOrOpen',
+                body: 'Test body with operation navigateLastFocusedOrOpen',
+                data: {
+                  onActionClick: {
+                    foo: {operation: 'navigateLastFocusedOrOpen'},
+                  },
+                },
+              },
+              'foo');
+          expect(scope.clients.openWindow).toHaveBeenCalledWith(`${scope.registration.scope}`);
+        });
+      });
+
+      describe('No matching onActionClick field', () => {
+        it('no client interaction', async () => {
+          expect(await makeRequest(scope, '/foo.txt')).toEqual('this is foo');
+          spyOn(scope.clients, 'openWindow');
+
+          await driver.initialized;
+          await scope.handleClick(
+              {
+                title: 'This is a test without onActionClick field',
+                body: 'Test body without onActionClick field',
+                data: {
+                  onActionClick: {
+                    fooz: {operation: 'focusLastFocusedOrOpen', url: 'fooz'},
+                  },
+                },
+              },
+              'foo');
+          expect(scope.clients.openWindow).not.toHaveBeenCalled();
+        });
+      });
+
+      describe('no action', () => {
+        it('uses onActionClick default when no specific action is clicked', async () => {
+          expect(await makeRequest(scope, '/foo.txt')).toEqual('this is foo');
+          spyOn(scope.clients, 'openWindow');
+          const url = 'fooz';
+
+          await driver.initialized;
+          await scope.handleClick(
+              {
+                title: 'This is a test without action',
+                body: 'Test body without action',
+                data: {
+                  onActionClick: {
+                    default: {operation: 'openWindow', url},
+                  },
+                },
+              },
+              '');
+          expect(scope.clients.openWindow)
+              .toHaveBeenCalledWith(`${scope.registration.scope}${url}`);
+        });
+
+        describe('no onActionClick default', () => {
+          it('has no client interaction', async () => {
+            expect(await makeRequest(scope, '/foo.txt')).toEqual('this is foo');
+            spyOn(scope.clients, 'openWindow');
+
+            await driver.initialized;
+            await scope.handleClick(
+                {title: 'This is a test without action', body: 'Test body without action'});
+            expect(scope.clients.openWindow).not.toHaveBeenCalled();
+          });
+        });
+      });
+
+      describe('URL resolution', () => {
+        it('should resolve relative to service worker scope', async () => {
+          (scope.registration.scope as string) = 'http://localhost/foo/bar/';
+
+          expect(await makeRequest(scope, '/foo.txt')).toEqual('this is foo');
+
+          spyOn(scope.clients, 'openWindow');
+
+          await driver.initialized;
+          await scope.handleClick(
+              {
+                title: 'This is a test with a relative url',
+                body: 'Test body with a relative url',
+                data: {
+                  onActionClick: {
+                    foo: {operation: 'openWindow', url: 'baz/qux'},
+                  },
+                },
+              },
+              'foo');
+          expect(scope.clients.openWindow).toHaveBeenCalledWith('http://localhost/foo/bar/baz/qux');
+        });
+
+        it('should resolve with an absolute path', async () => {
+          (scope.registration.scope as string) = 'http://localhost/foo/bar/';
+
+          expect(await makeRequest(scope, '/foo.txt')).toEqual('this is foo');
+
+          spyOn(scope.clients, 'openWindow');
+
+          await driver.initialized;
+          await scope.handleClick(
+              {
+                title: 'This is a test with an absolute path url',
+                body: 'Test body with an absolute path url',
+                data: {
+                  onActionClick: {
+                    foo: {operation: 'openWindow', url: '/baz/qux'},
+                  },
+                },
+              },
+              'foo');
+          expect(scope.clients.openWindow).toHaveBeenCalledWith('http://localhost/baz/qux');
+        });
+
+        it('should resolve other origins', async () => {
+          (scope.registration.scope as string) = 'http://localhost/foo/bar/';
+
+          expect(await makeRequest(scope, '/foo.txt')).toEqual('this is foo');
+
+          spyOn(scope.clients, 'openWindow');
+
+          await driver.initialized;
+          await scope.handleClick(
+              {
+                title: 'This is a test with external origin',
+                body: 'Test body with external origin',
+                data: {
+                  onActionClick: {
+                    foo: {operation: 'openWindow', url: 'http://other.host/baz/qux'},
+                  },
+                },
+              },
+              'foo');
+          expect(scope.clients.openWindow).toHaveBeenCalledWith('http://other.host/baz/qux');
+        });
+      });
+    });
   });
 
   it('prefetches updates to lazy cache when set', async () => {
@@ -905,28 +1274,28 @@ describe('Driver', () => {
   describe('serving ngsw/state', () => {
     it('should show debug info (when in NORMAL state)', async () => {
       expect(await makeRequest(scope, '/ngsw/state'))
-          .toMatch(/^NGSW Debug Info:\n\nDriver state: NORMAL/);
+          .toMatch(/^NGSW Debug Info:\n\nDriver version: .+\nDriver state: NORMAL/);
     });
 
     it('should show debug info (when in EXISTING_CLIENTS_ONLY state)', async () => {
       driver.state = DriverReadyState.EXISTING_CLIENTS_ONLY;
       expect(await makeRequest(scope, '/ngsw/state'))
-          .toMatch(/^NGSW Debug Info:\n\nDriver state: EXISTING_CLIENTS_ONLY/);
+          .toMatch(/^NGSW Debug Info:\n\nDriver version: .+\nDriver state: EXISTING_CLIENTS_ONLY/);
     });
 
     it('should show debug info (when in SAFE_MODE state)', async () => {
       driver.state = DriverReadyState.SAFE_MODE;
       expect(await makeRequest(scope, '/ngsw/state'))
-          .toMatch(/^NGSW Debug Info:\n\nDriver state: SAFE_MODE/);
+          .toMatch(/^NGSW Debug Info:\n\nDriver version: .+\nDriver state: SAFE_MODE/);
     });
 
     it('should show debug info when the scope is not root', async () => {
       const newScope =
           new SwTestHarnessBuilder('http://localhost/foo/bar/').withServerState(server).build();
-      new Driver(newScope, newScope, new CacheDatabase(newScope, newScope));
+      new Driver(newScope, newScope, new CacheDatabase(newScope));
 
       expect(await makeRequest(newScope, '/foo/bar/ngsw/state'))
-          .toMatch(/^NGSW Debug Info:\n\nDriver state: NORMAL/);
+          .toMatch(/^NGSW Debug Info:\n\nDriver version: .+\nDriver state: NORMAL/);
     });
   });
 
@@ -937,12 +1306,12 @@ describe('Driver', () => {
     const cacheKeysFor = (baseHref: string, manifestHash: string) =>
         [`ngsw:${baseHref}:db:control`,
          `ngsw:${baseHref}:${manifestHash}:assets:eager:cache`,
-         `ngsw:${baseHref}:db:ngsw:${baseHref}:${manifestHash}:assets:eager:meta`,
+         `ngsw:${baseHref}:db:${manifestHash}:assets:eager:meta`,
          `ngsw:${baseHref}:${manifestHash}:assets:lazy:cache`,
-         `ngsw:${baseHref}:db:ngsw:${baseHref}:${manifestHash}:assets:lazy:meta`,
-         `ngsw:${baseHref}:42:data:dynamic:api:cache`,
-         `ngsw:${baseHref}:db:ngsw:${baseHref}:42:data:dynamic:api:lru`,
-         `ngsw:${baseHref}:db:ngsw:${baseHref}:42:data:dynamic:api:age`,
+         `ngsw:${baseHref}:db:${manifestHash}:assets:lazy:meta`,
+         `ngsw:${baseHref}:42:data:api:cache`,
+         `ngsw:${baseHref}:db:42:data:api:lru`,
+         `ngsw:${baseHref}:db:42:data:api:age`,
     ];
 
     const createManifestWithBaseHref = (baseHref: string, distDir: MockFileSystem): Manifest => ({
@@ -992,7 +1361,8 @@ describe('Driver', () => {
     });
 
     const getClientAssignments = async (sw: SwTestHarness, baseHref: string) => {
-      const cache = await sw.caches.open(`ngsw:${baseHref}:db:control`) as unknown as MockCache;
+      const cache =
+          await sw.caches.original.open(`ngsw:${baseHref}:db:control`) as unknown as MockCache;
       const dehydrated = cache.dehydrate();
       return JSON.parse(dehydrated['/assignments'].body!) as any;
     };
@@ -1012,7 +1382,7 @@ describe('Driver', () => {
                            .withCacheState(initialCacheState)
                            .withServerState(serverState)
                            .build();
-      const newDriver = new Driver(newScope, newScope, new CacheDatabase(newScope, newScope));
+      const newDriver = new Driver(newScope, newScope, new CacheDatabase(newScope));
 
       await makeRequest(newScope, newManifest.index, baseHref.replace(/\//g, '_'));
       await newDriver.initialized;
@@ -1027,14 +1397,14 @@ describe('Driver', () => {
     it('includes the SW scope in all cache names', async () => {
       // SW with scope `/`.
       const [rootScope, rootManifestHash] = await initializeSwFor('/');
-      const cacheNames = await rootScope.caches.keys();
+      const cacheNames = await rootScope.caches.original.keys();
 
       expect(cacheNames).toEqual(cacheKeysFor('/', rootManifestHash));
       expect(cacheNames.every(name => name.includes('/'))).toBe(true);
 
       // SW with scope `/foo/`.
       const [fooScope, fooManifestHash] = await initializeSwFor('/foo/');
-      const fooCacheNames = await fooScope.caches.keys();
+      const fooCacheNames = await fooScope.caches.original.keys();
 
       expect(fooCacheNames).toEqual(cacheKeysFor('/foo/', fooManifestHash));
       expect(fooCacheNames.every(name => name.includes('/foo/'))).toBe(true);
@@ -1049,8 +1419,8 @@ describe('Driver', () => {
 
       // Add new SW with different scope.
       const [barScope, barManifestHash] =
-          await initializeSwFor('/bar/', await fooScope.caches.dehydrate());
-      const barCacheNames = await barScope.caches.keys();
+          await initializeSwFor('/bar/', await fooScope.caches.original.dehydrate());
+      const barCacheNames = await barScope.caches.original.keys();
       const barAssignments = await getClientAssignments(barScope, '/bar/');
 
       expect(barAssignments).toEqual({_bar_: barManifestHash});
@@ -1080,7 +1450,7 @@ describe('Driver', () => {
 
       // Add new SW with same scope.
       const [fooScope2, fooManifestHash2] =
-          await initializeSwFor('/foo/', await fooScope.caches.dehydrate());
+          await initializeSwFor('/foo/', await fooScope.caches.original.dehydrate());
 
       // Update client `_foo_` but not client `_bar_`.
       await fooScope2.handleMessage({action: 'CHECK_FOR_UPDATES'}, '_foo_');
@@ -1147,6 +1517,7 @@ describe('Driver', () => {
       // Another 6 seconds.
       scope.advance(6000);
       await driver.idle.empty;
+      await new Promise(resolve => setTimeout(resolve));  // Wait for async operations to complete.
       serverUpdate.assertSawRequestFor('/unhashed/a.txt');
 
       // Now the new version of the resource should be served.
@@ -1158,9 +1529,9 @@ describe('Driver', () => {
       expect(await makeRequest(scope, '/unhashed/a.txt')).toEqual('this is unhashed');
       server.clearRequests();
 
-      const state = scope.caches.dehydrate();
+      const state = scope.caches.original.dehydrate();
       scope = new SwTestHarnessBuilder().withCacheState(state).withServerState(server).build();
-      driver = new Driver(scope, scope, new CacheDatabase(scope, scope));
+      driver = new Driver(scope, scope, new CacheDatabase(scope));
       expect(await makeRequest(scope, '/foo.txt')).toEqual('this is foo');
       await driver.initialized;
       server.assertNoRequestFor('/unhashed/a.txt');
@@ -1182,10 +1553,10 @@ describe('Driver', () => {
       server.clearRequests();
 
       scope = new SwTestHarnessBuilder()
-                  .withCacheState(scope.caches.dehydrate())
+                  .withCacheState(scope.caches.original.dehydrate())
                   .withServerState(serverUpdate)
                   .build();
-      driver = new Driver(scope, scope, new CacheDatabase(scope, scope));
+      driver = new Driver(scope, scope, new CacheDatabase(scope));
       expect(await makeRequest(scope, '/foo.txt')).toEqual('this is foo');
       await driver.initialized;
 
@@ -1377,7 +1748,7 @@ describe('Driver', () => {
       scope = new SwTestHarnessBuilder('http://localhost/base/href/')
                   .withServerState(serverWithBaseHref)
                   .build();
-      driver = new Driver(scope, scope, new CacheDatabase(scope, scope));
+      driver = new Driver(scope, scope, new CacheDatabase(scope));
     });
 
     it('initializes prefetched content correctly, after a request kicks it off', async () => {
@@ -1483,26 +1854,29 @@ describe('Driver', () => {
         'ngsuu:active',
         'not:ngsw:active',
         'NgSw:StAgEd',
-        'ngsw:/:active',
-        'ngsw:/foo/:staged',
+        'ngsw:/:db:control',
+        'ngsw:/foo/:active',
+        'ngsw:/bar/:staged',
       ];
       const allCacheNames = oldSwCacheNames.concat(otherCacheNames);
 
-      await Promise.all(allCacheNames.map(name => scope.caches.open(name)));
-      expect(await scope.caches.keys()).toEqual(allCacheNames);
+      await Promise.all(allCacheNames.map(name => scope.caches.original.open(name)));
+      expect(await scope.caches.original.keys())
+          .toEqual(jasmine.arrayWithExactContents(allCacheNames));
 
       await driver.cleanupOldSwCaches();
-      expect(await scope.caches.keys()).toEqual(otherCacheNames);
+      expect(await scope.caches.original.keys())
+          .toEqual(jasmine.arrayWithExactContents(otherCacheNames));
     });
 
     it('should delete other caches even if deleting one of them fails', async () => {
       const oldSwCacheNames = ['ngsw:active', 'ngsw:staged', 'ngsw:manifest:a1b2c3:super:duper'];
       const deleteSpy =
-          spyOn(scope.caches, 'delete')
+          spyOn(scope.caches.original, 'delete')
               .and.callFake(
                   (cacheName: string) => Promise.reject(`Failed to delete cache '${cacheName}'.`));
 
-      await Promise.all(oldSwCacheNames.map(name => scope.caches.open(name)));
+      await Promise.all(oldSwCacheNames.map(name => scope.caches.original.open(name)));
       const error = await driver.cleanupOldSwCaches().catch(err => err);
 
       expect(error).toBe('Failed to delete cache \'ngsw:active\'.');
@@ -1515,7 +1889,7 @@ describe('Driver', () => {
     it('does not crash with bad index hash', async () => {
       scope = new SwTestHarnessBuilder().withServerState(brokenServer).build();
       (scope.registration as any).scope = 'http://site.com';
-      driver = new Driver(scope, scope, new CacheDatabase(scope, scope));
+      driver = new Driver(scope, scope, new CacheDatabase(scope));
 
       expect(await makeRequest(scope, '/foo.txt')).toEqual('this is foo (broken)');
     });
@@ -1526,10 +1900,10 @@ describe('Driver', () => {
       server.clearRequests();
 
       scope = new SwTestHarnessBuilder()
-                  .withCacheState(scope.caches.dehydrate())
+                  .withCacheState(scope.caches.original.dehydrate())
                   .withServerState(brokenServer)
                   .build();
-      driver = new Driver(scope, scope, new CacheDatabase(scope, scope));
+      driver = new Driver(scope, scope, new CacheDatabase(scope));
       await driver.checkForUpdate();
 
       scope.advance(12000);
@@ -1686,7 +2060,7 @@ describe('Driver', () => {
          expect(driver.state).toBe(DriverReadyState.NORMAL);
 
          // Ensure the data has been stored in the DB.
-         const db: MockCache = await scope.caches.open('ngsw:/:db:control') as any;
+         const db: MockCache = await scope.caches.open('db:control') as any;
          const getLatestHashFromDb = async () => (await (await db.match('/latest')).json()).latest;
          expect(await getLatestHashFromDb()).toBe(manifestHash);
 
@@ -1813,7 +2187,7 @@ describe('Driver', () => {
 
         // Create initial server state and initialize the SW.
         scope = new SwTestHarnessBuilder().withServerState(serverState1).build();
-        driver = new Driver(scope, scope, new CacheDatabase(scope, scope));
+        driver = new Driver(scope, scope, new CacheDatabase(scope));
 
         // Verify that all three clients are able to make the request.
         expect(await makeRequest(scope, '/foo.hash.js', 'client1')).toBe('console.log("FOO");');
@@ -1891,7 +2265,7 @@ describe('Driver', () => {
 
         // Create initial server state and initialize the SW.
         scope = new SwTestHarnessBuilder().withServerState(originalServer).build();
-        driver = new Driver(scope, scope, new CacheDatabase(scope, scope));
+        driver = new Driver(scope, scope, new CacheDatabase(scope));
 
         expect(await makeRequest(scope, '/foo.hash.js')).toBe('console.log("FOO");');
         await driver.initialized;
@@ -1904,10 +2278,10 @@ describe('Driver', () => {
         // Update the server state to emulate deploying a new version (where `foo.hash.js` does not
         // exist any more). Keep the cache though.
         scope = new SwTestHarnessBuilder()
-                    .withCacheState(scope.caches.dehydrate())
+                    .withCacheState(scope.caches.original.dehydrate())
                     .withServerState(updatedServer)
                     .build();
-        driver = new Driver(scope, scope, new CacheDatabase(scope, scope));
+        driver = new Driver(scope, scope, new CacheDatabase(scope));
 
         // The SW is still able to serve `foo.hash.js` from the cache.
         expect(await makeRequest(scope, '/foo.hash.js')).toBe('console.log("FOO");');
@@ -1935,7 +2309,7 @@ describe('Driver', () => {
                              .build();
 
         scope = new SwTestHarnessBuilder().withServerState(serverV5).build();
-        driver = new Driver(scope, scope, new CacheDatabase(scope, scope));
+        driver = new Driver(scope, scope, new CacheDatabase(scope));
       });
 
       // Test this bug: https://github.com/angular/angular/issues/27209
@@ -1989,7 +2363,7 @@ describe('Driver', () => {
       const freshnessManifest: Manifest = {...manifest, navigationRequestStrategy: 'freshness'};
       const server = serverBuilderBase.withManifest(freshnessManifest).build();
       const scope = new SwTestHarnessBuilder().withServerState(server).build();
-      const driver = new Driver(scope, scope, new CacheDatabase(scope, scope));
+      const driver = new Driver(scope, scope, new CacheDatabase(scope));
 
       return {server, scope, driver};
     }
@@ -2001,15 +2375,13 @@ async function removeAssetFromCache(
     scope: SwTestHarness, appVersionManifest: Manifest, assetPath: string) {
   const assetGroupName =
       appVersionManifest.assetGroups?.find(group => group.urls.includes(assetPath))?.name;
-  const cacheName = `${scope.cacheNamePrefix}:${sha1(JSON.stringify(appVersionManifest))}:assets:${
-      assetGroupName}:cache`;
+  const cacheName = `${sha1(JSON.stringify(appVersionManifest))}:assets:${assetGroupName}:cache`;
   const cache = await scope.caches.open(cacheName);
   return cache.delete(assetPath);
 }
 
 async function makeRequest(
-    scope: SwTestHarness, url: string, clientId: string|null = 'default',
-    init?: Object): Promise<string|null> {
+    scope: SwTestHarness, url: string, clientId = 'default', init?: Object): Promise<string|null> {
   const [resPromise, done] = scope.handleFetch(new MockRequest(url, init), clientId);
   await done;
   const res = await resPromise;
@@ -2020,8 +2392,7 @@ async function makeRequest(
 }
 
 function makeNavigationRequest(
-    scope: SwTestHarness, url: string, clientId?: string|null,
-    init: Object = {}): Promise<string|null> {
+    scope: SwTestHarness, url: string, clientId?: string, init: Object = {}): Promise<string|null> {
   return makeRequest(scope, url, clientId, {
     headers: {
       Accept: 'text/plain, text/html, text/css',

@@ -4,6 +4,9 @@
   "description": "Angular - library for using Angular in Node.js",
   "author": "angular",
   "license": "MIT",
+  "engines": {
+    "node": "^12.14.1 || >=14.0.0"
+  },
   "peerDependencies": {
     "@angular/animations": "0.0.0-PLACEHOLDER",
     "@angular/common": "0.0.0-PLACEHOLDER",
@@ -14,7 +17,7 @@
   },
   "dependencies": {
     "domino": "^2.1.2",
-    "tslib": "^2.1.0",
+    "tslib": "^2.2.0",
     "xhr2": "^0.2.0"
   },
   "repository": {
@@ -33,11 +36,5 @@
     "./__ivy_ngcc__/bundles/platform-server-init.umd.js",
     "./__ivy_ngcc__/esm2015/init/src/init.js",
     "./__ivy_ngcc__/fesm2015/init.js"
-  ],
-  "engines": {
-    "node": ">=8.0"
-  },
-  "publishConfig":{
-    "registry":"https://wombat-dressing-room.appspot.com"
-  }
+  ]
 }

@@ -6,23 +6,22 @@
  * found in the LICENSE file at https://angular.io/license
  */
 
-import {compileDeclareInjectableFromMetadata, compileInjectable, createR3ProviderExpression, Expression, FactoryTarget, LiteralExpr, R3CompiledExpression, R3DependencyMetadata, R3InjectableMetadata, R3ProviderExpression, Statement, WrappedNodeExpr} from '@angular/compiler';
+import {compileClassMetadata, CompileClassMetadataFn, compileDeclareClassMetadata, compileDeclareInjectableFromMetadata, compileInjectable, createR3ProviderExpression, Expression, FactoryTarget, LiteralExpr, R3ClassMetadata, R3CompiledExpression, R3DependencyMetadata, R3InjectableMetadata, R3ProviderExpression, Statement, WrappedNodeExpr} from '@angular/compiler';
 import * as ts from 'typescript';
 
 import {ErrorCode, FatalDiagnosticError} from '../../diagnostics';
-import {DefaultImportRecorder} from '../../imports';
 import {InjectableClassRegistry} from '../../metadata';
 import {PerfEvent, PerfRecorder} from '../../perf';
 import {ClassDeclaration, Decorator, ReflectionHost, reflectObjectLiteral} from '../../reflection';
 import {AnalysisOutput, CompileResult, DecoratorHandler, DetectResult, HandlerPrecedence} from '../../transform';
 
 import {compileDeclareFactory, CompileFactoryFn, compileNgFactoryDefField} from './factory';
-import {generateSetClassMetadataCall} from './metadata';
+import {extractClassMetadata} from './metadata';
 import {findAngularDecorator, getConstructorDependencies, getValidConstructorDependencies, isAngularCore, toFactoryMetadata, tryUnwrapForwardRef, unwrapConstructorDependencies, validateConstructorDependencies, wrapTypeReference} from './util';
 
 export interface InjectableHandlerData {
   meta: R3InjectableMetadata;
-  metadataStmt: Statement|null;
+  classMetadata: R3ClassMetadata|null;
   ctorDeps: R3DependencyMetadata[]|'invalid'|null;
   needsFactory: boolean;
 }
@@ -33,8 +32,7 @@ export interface InjectableHandlerData {
 export class InjectableDecoratorHandler implements
     DecoratorHandler<Decorator, InjectableHandlerData, null, unknown> {
   constructor(
-      private reflector: ReflectionHost, private defaultImportRecorder: DefaultImportRecorder,
-      private isCore: boolean, private strictCtorDeps: boolean,
+      private reflector: ReflectionHost, private isCore: boolean, private strictCtorDeps: boolean,
       private injectableRegistry: InjectableClassRegistry, private perf: PerfRecorder,
       /**
        * What to do if the injectable already contains a ɵprov property.
@@ -74,10 +72,8 @@ export class InjectableDecoratorHandler implements
       analysis: {
         meta,
         ctorDeps: extractInjectableCtorDeps(
-            node, meta, decorator, this.reflector, this.defaultImportRecorder, this.isCore,
-            this.strictCtorDeps),
-        metadataStmt: generateSetClassMetadataCall(
-            node, this.reflector, this.defaultImportRecorder, this.isCore),
+            node, meta, decorator, this.reflector, this.isCore, this.strictCtorDeps),
+        classMetadata: extractClassMetadata(node, this.reflector, this.isCore),
         // Avoid generating multiple factories if a class has
         // more Angular decorators, apart from Injectable.
         needsFactory: !decorators ||
@@ -96,27 +92,30 @@ export class InjectableDecoratorHandler implements
 
   compileFull(node: ClassDeclaration, analysis: Readonly<InjectableHandlerData>): CompileResult[] {
     return this.compile(
-        compileNgFactoryDefField, meta => compileInjectable(meta, false), node, analysis);
+        compileNgFactoryDefField, meta => compileInjectable(meta, false), compileClassMetadata,
+        node, analysis);
   }
 
   compilePartial(node: ClassDeclaration, analysis: Readonly<InjectableHandlerData>):
       CompileResult[] {
     return this.compile(
-        compileDeclareFactory, compileDeclareInjectableFromMetadata, node, analysis);
+        compileDeclareFactory, compileDeclareInjectableFromMetadata, compileDeclareClassMetadata,
+        node, analysis);
   }
 
   private compile(
       compileFactoryFn: CompileFactoryFn,
       compileInjectableFn: (meta: R3InjectableMetadata) => R3CompiledExpression,
-      node: ClassDeclaration, analysis: Readonly<InjectableHandlerData>): CompileResult[] {
+      compileClassMetadataFn: CompileClassMetadataFn, node: ClassDeclaration,
+      analysis: Readonly<InjectableHandlerData>): CompileResult[] {
     const results: CompileResult[] = [];
 
     if (analysis.needsFactory) {
       const meta = analysis.meta;
       const factoryRes = compileFactoryFn(
           toFactoryMetadata({...meta, deps: analysis.ctorDeps}, FactoryTarget.Injectable));
-      if (analysis.metadataStmt !== null) {
-        factoryRes.statements.push(analysis.metadataStmt);
+      if (analysis.classMetadata !== null) {
+        factoryRes.statements.push(compileClassMetadataFn(analysis.classMetadata).toStmt());
       }
       results.push(factoryRes);
     }
@@ -229,8 +228,7 @@ function getProviderExpression(
 
 function extractInjectableCtorDeps(
     clazz: ClassDeclaration, meta: R3InjectableMetadata, decorator: Decorator,
-    reflector: ReflectionHost, defaultImportRecorder: DefaultImportRecorder, isCore: boolean,
-    strictCtorDeps: boolean) {
+    reflector: ReflectionHost, isCore: boolean, strictCtorDeps: boolean) {
   if (decorator.args === null) {
     throw new FatalDiagnosticError(
         ErrorCode.DECORATOR_NOT_CALLED, Decorator.nodeForError(decorator),
@@ -249,15 +247,15 @@ function extractInjectableCtorDeps(
     // constructor signature does not work for DI then a factory definition (ɵfac) that throws is
     // generated.
     if (strictCtorDeps) {
-      ctorDeps = getValidConstructorDependencies(clazz, reflector, defaultImportRecorder, isCore);
+      ctorDeps = getValidConstructorDependencies(clazz, reflector, isCore);
     } else {
-      ctorDeps = unwrapConstructorDependencies(
-          getConstructorDependencies(clazz, reflector, defaultImportRecorder, isCore));
+      ctorDeps =
+          unwrapConstructorDependencies(getConstructorDependencies(clazz, reflector, isCore));
     }
 
     return ctorDeps;
   } else if (decorator.args.length === 1) {
-    const rawCtorDeps = getConstructorDependencies(clazz, reflector, defaultImportRecorder, isCore);
+    const rawCtorDeps = getConstructorDependencies(clazz, reflector, isCore);
 
     if (strictCtorDeps && meta.useValue === undefined && meta.useExisting === undefined &&
         meta.useClass === undefined && meta.useFactory === undefined) {

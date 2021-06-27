@@ -53,7 +53,7 @@ export class DocumentService {
   }
 
   private fetchDocument(id: string): Observable<DocumentContents> {
-    const requestPath = `${DOC_CONTENT_URL_PREFIX}${id}.json`;
+    const requestPath = `${DOC_CONTENT_URL_PREFIX}${encodeToLowercase(id)}.json`;
     const subject = new AsyncSubject<DocumentContents>();
 
     this.logger.log('fetching document from', requestPath);
@@ -96,4 +96,16 @@ export class DocumentService {
       contents: FETCHING_ERROR_CONTENTS(id),
     });
   }
+}
+
+/**
+ * Encode the path to the content in a deterministic, reversible, case-insensitive form.
+ *
+ * This avoids collisions on case-insensitive file-systems.
+ *
+ * - Escape underscores (_) to double underscores (__).
+ * - Convert all uppercase letters to lowercase followed by an underscore.
+ */
+function encodeToLowercase(str: string): string {
+  return str.replace(/[A-Z_]/g, char => char.toLowerCase() + '_');
 }

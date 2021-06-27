@@ -240,9 +240,6 @@
     "name": "Injector"
   },
   {
-    "name": "InnerSubscriber"
-  },
-  {
     "name": "IterableChangeRecord_"
   },
   {
@@ -423,9 +420,6 @@
     "name": "Optional"
   },
   {
-    "name": "OuterSubscriber"
-  },
-  {
     "name": "PLATFORM_ID"
   },
   {
@@ -514,6 +508,12 @@
   },
   {
     "name": "SimpleChange"
+  },
+  {
+    "name": "SimpleInnerSubscriber"
+  },
+  {
+    "name": "SimpleOuterSubscriber"
   },
   {
     "name": "SkipSelf"
@@ -1317,9 +1317,6 @@
     "name": "noop"
   },
   {
-    "name": "noop"
-  },
-  {
     "name": "normalizeValidators"
   },
   {
@@ -1396,6 +1393,9 @@
   },
   {
     "name": "removeListItem"
+  },
+  {
+    "name": "removeStyle"
   },
   {
     "name": "renderComponent"

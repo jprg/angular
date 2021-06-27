@@ -19,6 +19,7 @@ export interface LocalResolver {
   getLocal(name: string): o.Expression|null;
   notifyImplicitReceiverUse(): void;
   globals?: Set<string>;
+  maybeRestoreView(retrievalLevel: number, localRefLookup: boolean): void;
 }
 
 export class ConvertActionBindingResult {
@@ -259,8 +260,8 @@ function temporaryName(bindingId: string, temporaryNumber: number): string {
   return `tmp_${bindingId}_${temporaryNumber}`;
 }
 
-export function temporaryDeclaration(bindingId: string, temporaryNumber: number): o.Statement {
-  return new o.DeclareVarStmt(temporaryName(bindingId, temporaryNumber), o.NULL_EXPR);
+function temporaryDeclaration(bindingId: string, temporaryNumber: number): o.Statement {
+  return new o.DeclareVarStmt(temporaryName(bindingId, temporaryNumber));
 }
 
 function prependTemporaryDecls(
@@ -478,14 +479,20 @@ class _AstToIrVisitor implements cdAst.AstVisitor {
       return this.convertSafeAccess(ast, leftMostSafe, mode);
     } else {
       return convertToStatementIfNeeded(
-          mode, this._visit(ast.obj, _Mode.Expression).key(this._visit(ast.key, _Mode.Expression)));
+          mode,
+          this._visit(ast.receiver, _Mode.Expression).key(this._visit(ast.key, _Mode.Expression)));
     }
   }
 
   visitKeyedWrite(ast: cdAst.KeyedWrite, mode: _Mode): any {
-    const obj: o.Expression = this._visit(ast.obj, _Mode.Expression);
+    const obj: o.Expression = this._visit(ast.receiver, _Mode.Expression);
     const key: o.Expression = this._visit(ast.key, _Mode.Expression);
     const value: o.Expression = this._visit(ast.value, _Mode.Expression);
+
+    if (obj === this._implicitReceiver) {
+      this._localResolver.maybeRestoreView(0, false);
+    }
+
     return convertToStatementIfNeeded(mode, obj.key(key).set(value));
   }
 
@@ -627,6 +634,10 @@ class _AstToIrVisitor implements cdAst.AstVisitor {
     return this.convertSafeAccess(ast, this.leftMostSafeNode(ast), mode);
   }
 
+  visitSafeKeyedRead(ast: cdAst.SafeKeyedRead, mode: _Mode): any {
+    return this.convertSafeAccess(ast, this.leftMostSafeNode(ast), mode);
+  }
+
   visitAll(asts: cdAst.AST[], mode: _Mode): any {
     return asts.map(ast => this._visit(ast, mode));
   }
@@ -643,7 +654,8 @@ class _AstToIrVisitor implements cdAst.AstVisitor {
   }
 
   private convertSafeAccess(
-      ast: cdAst.AST, leftMostSafe: cdAst.SafeMethodCall|cdAst.SafePropertyRead, mode: _Mode): any {
+      ast: cdAst.AST, leftMostSafe: cdAst.SafeMethodCall|cdAst.SafePropertyRead|cdAst.SafeKeyedRead,
+      mode: _Mode): any {
     // If the expression contains a safe access node on the left it needs to be converted to
     // an expression that guards the access to the member by checking the receiver for blank. As
     // execution proceeds from left to right, the left most part of the expression must be guarded
@@ -705,7 +717,13 @@ class _AstToIrVisitor implements cdAst.AstVisitor {
           leftMostSafe,
           new cdAst.MethodCall(
               leftMostSafe.span, leftMostSafe.sourceSpan, leftMostSafe.nameSpan,
-              leftMostSafe.receiver, leftMostSafe.name, leftMostSafe.args));
+              leftMostSafe.receiver, leftMostSafe.name, leftMostSafe.args,
+              leftMostSafe.argumentSpan));
+    } else if (leftMostSafe instanceof cdAst.SafeKeyedRead) {
+      this._nodeMap.set(
+          leftMostSafe,
+          new cdAst.KeyedRead(
+              leftMostSafe.span, leftMostSafe.sourceSpan, leftMostSafe.receiver, leftMostSafe.key));
     } else {
       this._nodeMap.set(
           leftMostSafe,
@@ -727,15 +745,13 @@ class _AstToIrVisitor implements cdAst.AstVisitor {
     }
 
     // Produce the conditional
-    return convertToStatementIfNeeded(mode, condition.conditional(o.literal(null), access));
+    return convertToStatementIfNeeded(mode, condition.conditional(o.NULL_EXPR, access));
   }
 
   private convertNullishCoalesce(ast: cdAst.Binary, mode: _Mode): any {
-    // Allocate the temporary variable before visiting the LHS and RHS, because they
-    // may allocate temporary variables too and we don't want them to be reused.
-    const temporary = this.allocateTemporary();
     const left: o.Expression = this._visit(ast.left, _Mode.Expression);
     const right: o.Expression = this._visit(ast.right, _Mode.Expression);
+    const temporary = this.allocateTemporary();
     this.releaseTemporary(temporary);
 
     // Generate the following expression. It is identical to how TS
@@ -757,7 +773,8 @@ class _AstToIrVisitor implements cdAst.AstVisitor {
   //   a == null ? null : a.c.b.c?.d.e
   // then to:
   //   a == null ? null : a.b.c == null ? null : a.b.c.d.e
-  private leftMostSafeNode(ast: cdAst.AST): cdAst.SafePropertyRead|cdAst.SafeMethodCall {
+  private leftMostSafeNode(ast: cdAst.AST): cdAst.SafePropertyRead|cdAst.SafeMethodCall
+      |cdAst.SafeKeyedRead {
     const visit = (visitor: cdAst.AstVisitor, ast: cdAst.AST): any => {
       return (this._nodeMap.get(ast) || ast).visit(visitor);
     };
@@ -787,7 +804,7 @@ class _AstToIrVisitor implements cdAst.AstVisitor {
         return null;
       },
       visitKeyedRead(ast: cdAst.KeyedRead) {
-        return visit(this, ast.obj);
+        return visit(this, ast.receiver);
       },
       visitKeyedWrite(ast: cdAst.KeyedWrite) {
         return null;
@@ -826,6 +843,9 @@ class _AstToIrVisitor implements cdAst.AstVisitor {
         return visit(this, ast.receiver) || ast;
       },
       visitSafePropertyRead(ast: cdAst.SafePropertyRead) {
+        return visit(this, ast.receiver) || ast;
+      },
+      visitSafeKeyedRead(ast: cdAst.SafeKeyedRead) {
         return visit(this, ast.receiver) || ast;
       }
     });
@@ -907,6 +927,9 @@ class _AstToIrVisitor implements cdAst.AstVisitor {
       },
       visitSafePropertyRead(ast: cdAst.SafePropertyRead) {
         return false;
+      },
+      visitSafeKeyedRead(ast: cdAst.SafeKeyedRead) {
+        return false;
       }
     });
   }
@@ -965,6 +988,7 @@ function flattenStatements(arg: any, output: o.Statement[]) {
 class DefaultLocalResolver implements LocalResolver {
   constructor(public globals?: Set<string>) {}
   notifyImplicitReceiverUse(): void {}
+  maybeRestoreView(): void {}
   getLocal(name: string): o.Expression|null {
     if (name === EventHandlerVars.event.name) {
       return EventHandlerVars.event;

@@ -10,6 +10,11 @@ import * as o from '../../output/output_ast';
 
 export interface R3PartialDeclaration {
   /**
+   * The minimum version of the compiler that can process this partial declaration.
+   */
+  minVersion: string;
+
+  /**
    * Version number of the Angular compiler that was used to compile this declaration. The linker
    * will be able to detect which version a library is using and interpret its metadata accordingly.
    */
@@ -456,4 +461,29 @@ export interface R3DeclareDependencyMetadata {
    * Default: false,
    */
   skipSelf?: boolean;
+}
+
+/**
+ * Describes the shape of the object that the `ɵɵngDeclareClassMetadata()` function accepts.
+ *
+ * This interface serves primarily as documentation, as conformance to this interface is not
+ * enforced during linking.
+ */
+export interface R3DeclareClassMetadata extends R3PartialDeclaration {
+  /**
+   * The Angular decorators of the class.
+   */
+  decorators: o.Expression;
+
+  /**
+   * Optionally specifies the constructor parameters, their types and the Angular decorators of each
+   * parameter. This property is omitted if the class does not have a constructor.
+   */
+  ctorParameters?: o.Expression;
+
+  /**
+   * Optionally specifies the Angular decorators applied to the class properties. This property is
+   * omitted if no properties have any decorators.
+   */
+  propDecorators?: o.Expression;
 }

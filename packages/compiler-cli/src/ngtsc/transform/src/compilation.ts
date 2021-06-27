@@ -17,6 +17,7 @@ import {PerfEvent, PerfRecorder} from '../../perf';
 import {ClassDeclaration, DeclarationNode, Decorator, ReflectionHost} from '../../reflection';
 import {ProgramTypeCheckAdapter, TypeCheckContext} from '../../typecheck/api';
 import {getSourceFile, isExported} from '../../util/src/typescript';
+import {Xi18nContext} from '../../xi18n';
 
 import {AnalysisOutput, CompilationMode, CompileResult, DecoratorHandler, HandlerFlags, HandlerPrecedence, ResolveResult} from './api';
 import {DtsTransformRegistry} from './declaration';
@@ -118,7 +119,7 @@ export class TraitCompiler implements ProgramTypeCheckAdapter {
     // type of 'void', so `undefined` is used instead.
     const promises: Promise<void>[] = [];
 
-    const priorWork = this.incrementalBuild.priorWorkFor(sf);
+    const priorWork = this.incrementalBuild.priorAnalysisFor(sf);
     if (priorWork !== null) {
       for (const priorRecord of priorWork) {
         this.adopt(priorRecord);
@@ -166,6 +167,18 @@ export class TraitCompiler implements ProgramTypeCheckAdapter {
     return records;
   }
 
+  getAnalyzedRecords(): Map<ts.SourceFile, ClassRecord[]> {
+    const result = new Map<ts.SourceFile, ClassRecord[]>();
+    for (const [sf, classes] of this.fileToClasses) {
+      const records: ClassRecord[] = [];
+      for (const clazz of classes) {
+        records.push(this.classes.get(clazz)!);
+      }
+      result.set(sf, records);
+    }
+    return result;
+  }
+
   /**
    * Import a `ClassRecord` from a previous compilation.
    *
@@ -211,7 +224,7 @@ export class TraitCompiler implements ProgramTypeCheckAdapter {
 
   private scanClassForTraits(clazz: ClassDeclaration):
       PendingTrait<unknown, unknown, SemanticSymbol|null, unknown>[]|null {
-    if (!this.compileNonExportedClasses && !isExported(clazz)) {
+    if (!this.compileNonExportedClasses && !this.reflector.isStaticallyExported(clazz)) {
       return null;
     }
 
@@ -477,6 +490,25 @@ export class TraitCompiler implements ProgramTypeCheckAdapter {
 
         if (trait.resolution !== null) {
           trait.handler.index(ctx, clazz, trait.analysis, trait.resolution);
+        }
+      }
+    }
+  }
+
+  xi18n(bundle: Xi18nContext): void {
+    for (const clazz of this.classes.keys()) {
+      const record = this.classes.get(clazz)!;
+      for (const trait of record.traits) {
+        if (trait.state !== TraitState.Analyzed && trait.state !== TraitState.Resolved) {
+          // Skip traits that haven't been analyzed successfully.
+          continue;
+        } else if (trait.handler.xi18n === undefined) {
+          // Skip traits that don't support xi18n.
+          continue;
+        }
+
+        if (trait.analysis !== null) {
+          trait.handler.xi18n(bundle, clazz, trait.analysis);
         }
       }
     }

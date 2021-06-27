@@ -4,8 +4,11 @@
   "description": "Angular - library for using Angular Components as Custom Elements",
   "author": "angular",
   "license": "MIT",
+  "engines": {
+    "node": "^12.14.1 || >=14.0.0"
+  },
   "dependencies": {
-    "tslib": "^2.1.0"
+    "tslib": "^2.2.0"
   },
   "peerDependencies": {
     "@angular/core": "0.0.0-PLACEHOLDER",
@@ -21,8 +24,5 @@
     "packageGroup": "NG_UPDATE_PACKAGE_GROUP"
   },
   "sideEffects": false,
-  "schematics": "./schematics/collection.json",
-  "publishConfig":{
-    "registry":"https://wombat-dressing-room.appspot.com"
-  }
+  "schematics": "./schematics/collection.json"
 }

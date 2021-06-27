@@ -9,7 +9,7 @@
 import * as chars from '../chars';
 import {DEFAULT_INTERPOLATION_CONFIG, InterpolationConfig} from '../ml_parser/interpolation_config';
 
-import {AbsoluteSourceSpan, AST, AstVisitor, ASTWithSource, Binary, BindingPipe, Chain, Conditional, EmptyExpr, ExpressionBinding, FunctionCall, ImplicitReceiver, Interpolation, KeyedRead, KeyedWrite, LiteralArray, LiteralMap, LiteralMapKey, LiteralPrimitive, MethodCall, NonNullAssert, ParserError, ParseSpan, PrefixNot, PropertyRead, PropertyWrite, Quote, RecursiveAstVisitor, SafeMethodCall, SafePropertyRead, TemplateBinding, TemplateBindingIdentifier, ThisReceiver, Unary, VariableBinding} from './ast';
+import {AbsoluteSourceSpan, AST, AstVisitor, ASTWithSource, Binary, BindingPipe, Chain, Conditional, EmptyExpr, ExpressionBinding, FunctionCall, ImplicitReceiver, Interpolation, KeyedRead, KeyedWrite, LiteralArray, LiteralMap, LiteralMapKey, LiteralPrimitive, MethodCall, NonNullAssert, ParserError, ParseSpan, PrefixNot, PropertyRead, PropertyWrite, Quote, RecursiveAstVisitor, SafeKeyedRead, SafeMethodCall, SafePropertyRead, TemplateBinding, TemplateBindingIdentifier, ThisReceiver, Unary, VariableBinding} from './ast';
 import {EOF, isIdentifier, isQuote, Lexer, Token, TokenType} from './lexer';
 
 export interface InterpolationPiece {
@@ -461,6 +461,19 @@ export class _ParseAST {
     if (artificialEndIndex !== undefined && artificialEndIndex > this.currentEndIndex) {
       endIndex = artificialEndIndex;
     }
+
+    // In some unusual parsing scenarios (like when certain tokens are missing and an `EmptyExpr` is
+    // being created), the current token may already be advanced beyond the `currentEndIndex`. This
+    // appears to be a deep-seated parser bug.
+    //
+    // As a workaround for now, swap the start and end indices to ensure a valid `ParseSpan`.
+    // TODO(alxhub): fix the bug upstream in the parser state, and remove this workaround.
+    if (start > endIndex) {
+      const tmp = endIndex;
+      endIndex = start;
+      start = tmp;
+    }
+
     return new ParseSpan(start, endIndex);
   }
 
@@ -535,7 +548,11 @@ export class _ParseAST {
   expectIdentifierOrKeyword(): string|null {
     const n = this.next;
     if (!n.isIdentifier() && !n.isKeyword()) {
-      this.error(`Unexpected ${this.prettyPrintToken(n)}, expected identifier or keyword`);
+      if (n.isPrivateIdentifier()) {
+        this._reportErrorForPrivateIdentifier(n, 'expected identifier or keyword');
+      } else {
+        this.error(`Unexpected ${this.prettyPrintToken(n)}, expected identifier or keyword`);
+      }
       return null;
     }
     this.advance();
@@ -545,7 +562,12 @@ export class _ParseAST {
   expectIdentifierOrKeywordOrString(): string {
     const n = this.next;
     if (!n.isIdentifier() && !n.isKeyword() && !n.isString()) {
-      this.error(`Unexpected ${this.prettyPrintToken(n)}, expected identifier, keyword, or string`);
+      if (n.isPrivateIdentifier()) {
+        this._reportErrorForPrivateIdentifier(n, 'expected identifier, keyword or string');
+      } else {
+        this.error(
+            `Unexpected ${this.prettyPrintToken(n)}, expected identifier, keyword, or string`);
+      }
       return '';
     }
     this.advance();
@@ -800,24 +822,11 @@ export class _ParseAST {
         result = this.parseAccessMemberOrMethodCall(result, start, false);
 
       } else if (this.consumeOptionalOperator('?.')) {
-        result = this.parseAccessMemberOrMethodCall(result, start, true);
-
+        result = this.consumeOptionalCharacter(chars.$LBRACKET) ?
+            this.parseKeyedReadOrWrite(result, start, true) :
+            this.parseAccessMemberOrMethodCall(result, start, true);
       } else if (this.consumeOptionalCharacter(chars.$LBRACKET)) {
-        this.withContext(ParseContextFlags.Writable, () => {
-          this.rbracketsExpected++;
-          const key = this.parsePipe();
-          if (key instanceof EmptyExpr) {
-            this.error(`Key access cannot be empty`);
-          }
-          this.rbracketsExpected--;
-          this.expectCharacter(chars.$RBRACKET);
-          if (this.consumeOptionalOperator('=')) {
-            const value = this.parseConditional();
-            result = new KeyedWrite(this.span(start), this.sourceSpan(start), result, key, value);
-          } else {
-            result = new KeyedRead(this.span(start), this.sourceSpan(start), result, key);
-          }
-        });
+        result = this.parseKeyedReadOrWrite(result, start, false);
       } else if (this.consumeOptionalCharacter(chars.$LPAREN)) {
         this.rparensExpected++;
         const args = this.parseCallArguments();
@@ -886,6 +895,10 @@ export class _ParseAST {
       this.advance();
       return new LiteralPrimitive(this.span(start), this.sourceSpan(start), literalValue);
 
+    } else if (this.next.isPrivateIdentifier()) {
+      this._reportErrorForPrivateIdentifier(this.next, null);
+      return new EmptyExpr(this.span(start), this.sourceSpan(start));
+
     } else if (this.index >= this.tokens.length) {
       this.error(`Unexpected end of expression: ${this.input}`);
       return new EmptyExpr(this.span(start), this.sourceSpan(start));
@@ -916,11 +929,23 @@ export class _ParseAST {
     if (!this.consumeOptionalCharacter(chars.$RBRACE)) {
       this.rbracesExpected++;
       do {
+        const keyStart = this.inputIndex;
         const quoted = this.next.isString();
         const key = this.expectIdentifierOrKeywordOrString();
         keys.push({key, quoted});
-        this.expectCharacter(chars.$COLON);
-        values.push(this.parsePipe());
+
+        // Properties with quoted keys can't use the shorthand syntax.
+        if (quoted) {
+          this.expectCharacter(chars.$COLON);
+          values.push(this.parsePipe());
+        } else if (this.consumeOptionalCharacter(chars.$COLON)) {
+          values.push(this.parsePipe());
+        } else {
+          const span = this.span(keyStart);
+          const sourceSpan = this.sourceSpan(keyStart);
+          values.push(new PropertyRead(
+              span, sourceSpan, sourceSpan, new ImplicitReceiver(span, sourceSpan), key));
+        }
       } while (this.consumeOptionalCharacter(chars.$COMMA));
       this.rbracesExpected--;
       this.expectCharacter(chars.$RBRACE);
@@ -928,7 +953,7 @@ export class _ParseAST {
     return new LiteralMap(this.span(start), this.sourceSpan(start), keys, values);
   }
 
-  parseAccessMemberOrMethodCall(receiver: AST, start: number, isSafe: boolean = false): AST {
+  parseAccessMemberOrMethodCall(receiver: AST, start: number, isSafe: boolean): AST {
     const nameStart = this.inputIndex;
     const id = this.withContext(ParseContextFlags.Writable, () => {
       const id = this.expectIdentifierOrKeyword() ?? '';
@@ -940,14 +965,19 @@ export class _ParseAST {
     const nameSpan = this.sourceSpan(nameStart);
 
     if (this.consumeOptionalCharacter(chars.$LPAREN)) {
+      const argumentStart = this.inputIndex;
       this.rparensExpected++;
       const args = this.parseCallArguments();
+      const argumentSpan =
+          this.span(argumentStart, this.inputIndex).toAbsolute(this.absoluteOffset);
+
       this.expectCharacter(chars.$RPAREN);
       this.rparensExpected--;
       const span = this.span(start);
       const sourceSpan = this.sourceSpan(start);
-      return isSafe ? new SafeMethodCall(span, sourceSpan, nameSpan, receiver, id, args) :
-                      new MethodCall(span, sourceSpan, nameSpan, receiver, id, args);
+      return isSafe ?
+          new SafeMethodCall(span, sourceSpan, nameSpan, receiver, id, args, argumentSpan) :
+          new MethodCall(span, sourceSpan, nameSpan, receiver, id, args, argumentSpan);
 
     } else {
       if (isSafe) {
@@ -1062,6 +1092,31 @@ export class _ParseAST {
     }
 
     return new TemplateBindingParseResult(bindings, [] /* warnings */, this.errors);
+  }
+
+  parseKeyedReadOrWrite(receiver: AST, start: number, isSafe: boolean): AST {
+    return this.withContext(ParseContextFlags.Writable, () => {
+      this.rbracketsExpected++;
+      const key = this.parsePipe();
+      if (key instanceof EmptyExpr) {
+        this.error(`Key access cannot be empty`);
+      }
+      this.rbracketsExpected--;
+      this.expectCharacter(chars.$RBRACKET);
+      if (this.consumeOptionalOperator('=')) {
+        if (isSafe) {
+          this.error('The \'?.\' operator cannot be used in the assignment');
+        } else {
+          const value = this.parseConditional();
+          return new KeyedWrite(this.span(start), this.sourceSpan(start), receiver, key, value);
+        }
+      } else {
+        return isSafe ? new SafeKeyedRead(this.span(start), this.sourceSpan(start), receiver, key) :
+                        new KeyedRead(this.span(start), this.sourceSpan(start), receiver, key);
+      }
+
+      return new EmptyExpr(this.span(start), this.sourceSpan(start));
+    });
   }
 
   /**
@@ -1192,6 +1247,20 @@ export class _ParseAST {
   }
 
   /**
+   * Records an error for an unexpected private identifier being discovered.
+   * @param token Token representing a private identifier.
+   * @param extraMessage Optional additional message being appended to the error.
+   */
+  private _reportErrorForPrivateIdentifier(token: Token, extraMessage: string|null) {
+    let errorMessage =
+        `Private identifiers are not supported. Unexpected private identifier: ${token}`;
+    if (extraMessage !== null) {
+      errorMessage += `, ${extraMessage}`;
+    }
+    this.error(errorMessage);
+  }
+
+  /**
    * Error recovery should skip tokens until it encounters a recovery point.
    *
    * The following are treated as unconditional recovery points:
@@ -1288,6 +1357,8 @@ class SimpleExpressionChecker implements AstVisitor {
   visitChain(ast: Chain, context: any) {}
 
   visitQuote(ast: Quote, context: any) {}
+
+  visitSafeKeyedRead(ast: SafeKeyedRead, context: any) {}
 }
 
 /**

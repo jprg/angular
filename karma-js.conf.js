@@ -8,6 +8,7 @@
 
 const browserProvidersConf = require('./browser-providers.conf');
 const {generateSeed} = require('./tools/jasmine-seed-generator');
+const {hostname} = require('os');
 
 // Karma configuration
 // Generated on Thu Sep 25 2014 11:52:02 GMT-0700 (PDT)
@@ -20,6 +21,7 @@ module.exports = function(config) {
         random: true,
         seed: generateSeed('karma-js.conf'),
       },
+      captureConsole: process.env.CI ? false : true,
     },
 
     files: [
@@ -37,7 +39,7 @@ module.exports = function(config) {
       {pattern: 'node_modules/angular/angular?(.min).js', included: false, watched: false},
       {pattern: 'node_modules/angular-mocks/angular-mocks.js', included: false, watched: false},
 
-      'node_modules/core-js/client/core.js',
+      'node_modules/core-js-bundle/index.js',
       'node_modules/jasmine-ajax/lib/mock-ajax.js',
 
       // Dependencies built by Bazel. See `config.yml` for steps running before
@@ -57,7 +59,6 @@ module.exports = function(config) {
         included: false,
         watched: false
       },
-      {pattern: 'node_modules/mutation-observer/index.js', included: false, watched: false},
 
       {pattern: 'node_modules/rxjs/**', included: false, watched: false, served: true},
       'node_modules/reflect-metadata/Reflect.js',
@@ -182,6 +183,8 @@ module.exports = function(config) {
   // More context can be found in: https://github.com/angular/angular/pull/35171.
   if (process.env.SAUCE_LOCALHOST_ALIAS_DOMAIN) {
     conf.hostname = process.env.SAUCE_LOCALHOST_ALIAS_DOMAIN;
+  } else {
+    conf.hostname = hostname();
   }
 
   if (process.env.KARMA_WEB_TEST_MODE) {

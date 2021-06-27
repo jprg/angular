@@ -6,8 +6,8 @@
  * found in the LICENSE file at https://angular.io/license
  */
 
-import * as Octokit from '@octokit/rest';
-import {GitClient} from '../../utils/git/index';
+import {Octokit} from '@octokit/rest';
+import {GitClient} from '../../utils/git/git-client';
 
 /** Thirty seconds in milliseconds. */
 const THIRTY_SECONDS_IN_MS = 30000;

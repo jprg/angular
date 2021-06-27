@@ -13,7 +13,7 @@ import {CycleAnalyzer, CycleHandlingStrategy, ImportGraph} from '../../cycles';
 import {ErrorCode, FatalDiagnosticError} from '../../diagnostics';
 import {absoluteFrom} from '../../file_system';
 import {runInEachFileSystem} from '../../file_system/testing';
-import {ModuleResolver, NOOP_DEFAULT_IMPORT_RECORDER, ReferenceEmitter} from '../../imports';
+import {ModuleResolver, ReferenceEmitter} from '../../imports';
 import {CompoundMetadataReader, DtsMetadataReader, InjectableClassRegistry, LocalMetadataRegistry, ResourceRegistry} from '../../metadata';
 import {PartialEvaluator} from '../../partial_evaluator';
 import {NOOP_PERF_RECORDER} from '../../perf';
@@ -81,7 +81,6 @@ function setup(program: ts.Program, options: ts.CompilerOptions, host: ts.Compil
       cycleAnalyzer,
       CycleHandlingStrategy.UseRemoteScoping,
       refEmitter,
-      NOOP_DEFAULT_IMPORT_RECORDER,
       /* depTracker */ null,
       injectableRegistry,
       /* semanticDepGraphUpdater */ null,
@@ -230,6 +229,36 @@ runInEachFileSystem(() => {
       expect(analysis?.resources.styles.size).toBe(3);
     });
 
+    it('should use an empty source map URL for an indirect template', () => {
+      const template = '<span>indirect</span>';
+      const {program, options, host} = makeProgram([
+        {
+          name: _('/node_modules/@angular/core/index.d.ts'),
+          contents: 'export const Component: any;',
+        },
+        {
+          name: _('/entry.ts'),
+          contents: `
+          import {Component} from '@angular/core';
+
+          const TEMPLATE = '${template}';
+
+          @Component({
+            template: TEMPLATE,
+          }) class TestCmp {}
+      `
+        },
+      ]);
+      const {reflectionHost, handler} = setup(program, options, host);
+      const TestCmp = getDeclaration(program, _('/entry.ts'), 'TestCmp', isNamedClassDeclaration);
+      const detected = handler.detect(TestCmp, reflectionHost.getDecoratorsOfDeclaration(TestCmp));
+      if (detected === undefined) {
+        return fail('Failed to recognize @Component');
+      }
+      const {analysis} = handler.analyze(TestCmp, detected.metadata);
+      expect(analysis?.template.file?.url).toEqual('');
+    });
+
     it('does not emit a program with template parse errors', () => {
       const template = '{{x ? y }}';
       const {program, options, host} = makeProgram([
@@ -302,6 +331,74 @@ runInEachFileSystem(() => {
 
       const {analysis} = handler.analyze(TestCmp, detected.metadata);
       expect(analysis?.inlineStyles).toEqual(jasmine.arrayWithExactContents(['.xyz {}']));
+    });
+
+    it('should error if canPreprocess is true and async analyze is not used', async () => {
+      const {program, options, host} = makeProgram([
+        {
+          name: _('/node_modules/@angular/core/index.d.ts'),
+          contents: 'export const Component: any;',
+        },
+        {
+          name: _('/entry.ts'),
+          contents: `
+          import {Component} from '@angular/core';
+
+          @Component({
+            template: '',
+            styles: ['.abc {}']
+          }) class TestCmp {}
+      `
+        },
+      ]);
+      const {reflectionHost, handler, resourceLoader} = setup(program, options, host);
+      resourceLoader.canPreload = true;
+      resourceLoader.canPreprocess = true;
+
+      const TestCmp = getDeclaration(program, _('/entry.ts'), 'TestCmp', isNamedClassDeclaration);
+      const detected = handler.detect(TestCmp, reflectionHost.getDecoratorsOfDeclaration(TestCmp));
+      if (detected === undefined) {
+        return fail('Failed to recognize @Component');
+      }
+
+      expect(() => handler.analyze(TestCmp, detected.metadata))
+          .toThrowError('Inline resource processing requires asynchronous preanalyze.');
+    });
+
+    it('should not error if component has no inline styles and canPreprocess is true', async () => {
+      const {program, options, host} = makeProgram([
+        {
+          name: _('/node_modules/@angular/core/index.d.ts'),
+          contents: 'export const Component: any;',
+        },
+        {
+          name: _('/entry.ts'),
+          contents: `
+          import {Component} from '@angular/core';
+
+          @Component({
+            template: '',
+          }) class TestCmp {}
+      `
+        },
+      ]);
+      const {reflectionHost, handler, resourceLoader} = setup(program, options, host);
+      resourceLoader.canPreload = true;
+      resourceLoader.canPreprocess = true;
+      resourceLoader.preprocessInline = async function(data, context) {
+        fail('preprocessInline should not have been called.');
+        return data;
+      };
+
+      const TestCmp = getDeclaration(program, _('/entry.ts'), 'TestCmp', isNamedClassDeclaration);
+      const detected = handler.detect(TestCmp, reflectionHost.getDecoratorsOfDeclaration(TestCmp));
+      if (detected === undefined) {
+        return fail('Failed to recognize @Component');
+      }
+
+      await handler.preanalyze(TestCmp, detected.metadata);
+
+      expect(() => handler.analyze(TestCmp, detected.metadata)).not.toThrow();
     });
   });
 

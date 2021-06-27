@@ -8,8 +8,10 @@
 
 import {Adapter, Context} from './adapter';
 import {Database, Table} from './database';
+import {CacheTable} from './db-cache';
 import {DebugHandler} from './debug';
 import {DataGroupConfig} from './manifest';
+import {NamedCache} from './named-cache-storage';
 
 /**
  * A metadata record of how old a particular cached resource is.
@@ -227,7 +229,7 @@ export class DataGroup {
   /**
    * The `Cache` instance in which resources belonging to this group are cached.
    */
-  private readonly cache: Promise<Cache>;
+  private readonly cache: Promise<NamedCache>;
 
   /**
    * Tracks the LRU state of resources in this cache.
@@ -247,13 +249,11 @@ export class DataGroup {
   constructor(
       private scope: ServiceWorkerGlobalScope, private adapter: Adapter,
       private config: DataGroupConfig, private db: Database, private debugHandler: DebugHandler,
-      private prefix: string) {
-    this.patterns = this.config.patterns.map(pattern => new RegExp(pattern));
-    this.cache = this.scope.caches.open(`${this.prefix}:dynamic:${this.config.name}:cache`);
-    this.lruTable = this.db.open(
-        `${this.prefix}:dynamic:${this.config.name}:lru`, this.config.cacheQueryOptions);
-    this.ageTable = this.db.open(
-        `${this.prefix}:dynamic:${this.config.name}:age`, this.config.cacheQueryOptions);
+      cacheNamePrefix: string) {
+    this.patterns = config.patterns.map(pattern => new RegExp(pattern));
+    this.cache = adapter.caches.open(`${cacheNamePrefix}:${config.name}:cache`);
+    this.lruTable = this.db.open(`${cacheNamePrefix}:${config.name}:lru`, config.cacheQueryOptions);
+    this.ageTable = this.db.open(`${cacheNamePrefix}:${config.name}:age`, config.cacheQueryOptions);
   }
 
   /**
@@ -550,10 +550,21 @@ export class DataGroup {
   async cleanup(): Promise<void> {
     // Remove both the cache and the database entries which track LRU stats.
     await Promise.all([
-      this.scope.caches.delete(`${this.prefix}:dynamic:${this.config.name}:cache`),
-      this.db.delete(`${this.prefix}:dynamic:${this.config.name}:age`),
-      this.db.delete(`${this.prefix}:dynamic:${this.config.name}:lru`),
+      this.cache.then(cache => this.adapter.caches.delete(cache.name)),
+      this.ageTable.then(table => this.db.delete(table.name)),
+      this.lruTable.then(table => this.db.delete(table.name)),
     ]);
+  }
+  /**
+   * Return a list of the names of all caches used by this group.
+   */
+  async getCacheNames(): Promise<string[]> {
+    const [cache, ageTable, lruTable] = await Promise.all([
+      this.cache,
+      this.ageTable as Promise<CacheTable>,
+      this.lruTable as Promise<CacheTable>,
+    ]);
+    return [cache.name, ageTable.cacheName, lruTable.cacheName];
   }
 
   /**

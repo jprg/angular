@@ -48,7 +48,7 @@
     "name": "Alisa Duncan",
     "picture": "alisaduncan.jpg",
     "twitter": "alisaduncan",
-    "website": "https://github.com/alisaduncan", 
+    "website": "https://github.com/alisaduncan",
     "bio": "Alisa is a software engineer and community builder who loves the thrill of learning new things. She is a core member of the ngGirls Team, co-organizes the local AngularKC meetup, and helps women learn web development as the Curriculum Director for the Coding & Cocktails program at Kansas City Women in Technology. When not coding, she enjoys drinking red wine with her husband while sitting on the patio.",
     "groups": ["GDE"]
   },
@@ -89,13 +89,6 @@
     "picture": "andrewseguin.jpg",
     "website": "https://github.com/andrewseguin",
     "bio": "Andrew is an engineer on the Angular Material team working on bringing material components to the world. When he’s not obsessing over pixels and design, he is probably off somewhere having adventures with his wife and daughters.",
-    "groups": ["Angular"],
-    "lead": "jelbourn"
-  },
-  "anneiyw": {
-    "name": "Annie Wang",
-    "picture": "annieyw.jpg",
-    "bio": "Annie is an engineering resident on the Angular Components team at Google. She is passionate about the intersection between design and technology and enjoys drawing in her free time.",
     "groups": ["Angular"],
     "lead": "jelbourn"
   },
@@ -224,6 +217,12 @@
     "groups": ["Angular"],
     "lead": "jelbourn"
   },
+  "danieltre23": {
+    "name": "Daniel Trevino",
+    "picture": "danieltre23.jpg",
+    "bio": "Daniel is a Software Engineer Intern at Google, loves to learn new things, write code and listen to music.",
+    "groups": ["Angular"]
+  },
   "danwahlin": {
     "name": "Dan Wahlin",
     "picture": "danwahlin.jpg",
@@ -274,6 +273,14 @@
     "bio": "Doguhan is a GDE in Angular and Web Technologies. He is the author of Angular for Enterprise-Ready Web Applications, a speaker, organizer for AngularDC, and OSS contributor. When away from a screen, he enjoys playing Go, building legos, and claims to be an avid mixologist.",
     "groups": ["GDE"]
   },
+  "dylhunn": {
+    "name": "Dylan Hunn",
+    "picture": "dylan-hunn.jpg",
+    "twitter": "dylhunn",
+    "bio": "Dylan is a software engineer at Google on the Angular Core team. He loves board games, the open web, and adorable rabbits.",
+    "groups": ["Angular"],
+    "lead": "jelbourn"
+  },
   "EladBezalel": {
     "name": "Elad Bezalel",
     "picture": "eladbezalel.jpg",
@@ -300,7 +307,6 @@
     "name": "Josue Gutierrez",
     "picture": "josue.jpg",
     "twitter": "eusoj",
-    "website": "http://techtam.io",
     "bio": "Based in Mexico, Josue has been web developer since the last 10 years, he is part of the Google Developer Expert Program, passionate about teaching and building communities",
     "groups": ["GDE"]
   },
@@ -333,7 +339,6 @@
     "name": "Gerard Sans",
     "picture": "gerardsans.jpg",
     "twitter": "gerardsans",
-    "website": "https://medium.com/@gerard.sans",
     "bio": "Gerard is very excited about the future of the Web and JavaScript. Always happy Computer Science Engineer and humble Google Developer Expert. He loves to share his learnings by giving talks, trainings and writing about cool technologies. He loves running AngularZone and GraphQL London, mentoring students and giving back to the community.",
     "groups": ["GDE"]
   },
@@ -357,7 +362,6 @@
     "name": "Igor Minar",
     "picture": "igor-minar.jpg",
     "twitter": "IgorMinar",
-    "website": "https://google.com/+IgorMinar",
     "bio": "Igor is a software engineer at Google. He is a lead on the Angular project, practitioner of test driven development, open source enthusiast, hacker. In his free time, Igor enjoys spending time with his wife and two kids, doing outdoor activities (including but not limited to sports, gardening and building retaining walls).",
     "groups": ["Angular"]
   },
@@ -396,7 +400,6 @@
     "name": "Jeremy Wilken",
     "picture": "jeremywilken.jpg",
     "twitter": "gnomeontherun",
-    "website": "https://gnomeontherun.com",
     "bio": "Based in Austin Texas, Jeremy is an application architect and homebrewer. He is a Google Developer Expert in Web Technologies and Angular, with a focus on speaking and training and author of Angular in Action and Ionic in Action.",
     "groups": ["GDE"]
   },
@@ -412,7 +415,7 @@
   "jiali": {
     "name": "Jia Li",
     "groups": ["Collaborators"],
-    "mentor": "mhevery",
+    "mentor": "igorminar",
     "picture": "JiaLiPassion.jpg",
     "twitter": "Jialipassion",
     "website": "https://github.com/JiaLiPassion",
@@ -422,7 +425,6 @@
     "name": "Joe Eames",
     "picture": "joeeames.jpg",
     "twitter": "josepheames",
-    "website": "https://joeeames.me",
     "bio": "Joe Eames is a developer and educator. He publishes course on Angular and JavaScript on Pluralsight.com. He is an organizer of ng-conf, a Google Developer Expert in Angular, gives lots of talks & workshops, and loves all things web.",
     "groups": ["GDE"]
   },
@@ -481,14 +483,6 @@
     "bio": "Kamil Mysliwiec is a software engineer truly passionate about Web Technologies. Creator of NestJS, Co-Founder of Trilon.io, speaker, and trainer.",
     "groups": ["GDE"]
   },
-  "kapunahelewong": {
-    "name": "Kapunahele Wong",
-    "picture": "kapunahele.jpg",
-    "twitter": "kapunahele",
-    "bio": "Kapunahele is a developer and Angular fan who works on the Angular docs writing guides and developing example apps. She also enjoys Native Hawaiian practices, textile arts, and marveling at little, inconspicuous plants growing in forgotten places outdoors.",
-    "groups": ["Angular"],
-    "lead": "aikidave"
-  },
   "katerina": {
     "name": "Katerina Skroumpelou",
     "picture": "katerina.jpg",
@@ -524,7 +518,7 @@
     "name": "Kevin Kreuzer",
     "picture": "kevin-kreuzer.jpg",
     "twitter": "kreuzercode",
-    "website": "kreuzercode.com",
+    "website": "http://kreuzercode.com",
     "bio": "Kevin is a passionate freelance front-end engineer and Google Developer Expert based in Switzerland. He is a JavaScript enthusiast and fascinated by Angular. Kevin always tries to learn new things, expand his knowledge, and share it with others in the form of blog posts, workshops, podcasts, or presentations. He is a writer for various publications and the most active writer on Angular in-depth in 2019. Contributing to multiple projects and maintaining 7 npm packages, Kevin is also a big believer in open source. Furthermore, Kevin is a big football fan. Since his childhood, he has supported Real Madrid, which you might notice in a lot of his blog posts and tutorials.",
     "groups": ["GDE"]
   },
@@ -569,6 +563,13 @@
     "bio": "Luis is an enthusiast of Open Source software and communities, as well as being a public speaker, a technology trainer and an author of courses and technical articles. He is the organizer of the Angular Bolivia community and NG Bolivia conference. When he's not coding, Luis is reading about Astronomy or nerding about outer space, photography or even doing Astrophotography.",
     "groups": ["GDE"]
   },
+  "madleinas": {
+    "name": "Madleina Scheidegger",
+    "picture": "madleinas.jpg",
+    "bio": "Manager of the Angular Framework team @Google.",
+    "groups": ["Angular"],
+    "mentor": "jelbourn"
+  },
   "manekinekko": {
     "name": "Wassim Chegham",
     "picture": "wassim.jpg",
@@ -585,14 +586,20 @@
     "website": "https://www.softwarearchitekt.at",
     "bio": "Trainer and Consultant with focus on Angular. Writes for O'Reilly, the German Java Magazine and Heise. Regularly speaks at conferences.",
     "mentor": "mgechev",
-    "groups": ["GDE",
-      "Collaborators"]
+    "groups": ["GDE", "Collaborators"]
+  },
+  "marsibarsi": {
+    "name": "Roman Sedov",
+    "picture": "sedov.jpg",
+    "website": "http://marsibarsi.me/",
+    "twitter": "marsibarsi",
+    "bio": "Roman is an Angular Enthusiast and a Frontend Developer from Nizhny Novgorod, Russia. He writes tech articles, speaks at conferences, develops local GDG community and contributes to Open Source. He is also a co-creator of Taiga UI library and Ng Web APIs Open Source organization.",
+    "groups": ["GDE"]
   },
   "martinakraus": {
     "name": "Martina Kraus",
     "picture": "martinakraus.jpg",
     "twitter": "MartinaKraus11",
-    "website": "http://martina-kraus.io",
     "bio": "Martina is a software engineer and an Angular enthusiast. As a trainer, mentor and speaker she loves sharing knowledge about Web Technologies and Angular. She is Organizer of ngGirls and the local Angular Meetup",
     "groups": ["GDE"]
   },
@@ -628,15 +635,6 @@
     "bio": "Mike is a Developer Advocate for the Ionic Framework and a GDE in Angular. He spends most of his time making fast PWAs and exploring emerging web standards. When not behind a keyboard, you'll probably find him with a guitar and beer.",
     "groups": ["GDE"]
   },
-  "mhevery": {
-    "name": "Miško Hevery",
-    "picture": "misko.jpg",
-    "twitter": "mhevery",
-    "website": "http://misko.hevery.com",
-    "bio": "Miško Hevery is the creator of AngularJS framework. He has passion for making complex things simple. He currently works at Google, but has previously worked at Adobe, Sun Microsystems, Intel, and Xerox, where he became an expert in building web applications in web related technologies such as Java, JavaScript, Flex and ActionScript.",
-    "groups": ["Angular"],
-    "lead": "jelbourn"
-  },
   "michaelhladky": {
     "name": "Michael Hladky",
     "picture": "michael-hladky.jpg",
@@ -669,12 +667,27 @@
     "groups": ["Angular"],
     "lead": "jelbourn"
   },
+  "nartc": {
+    "name": "Chau Tran",
+    "picture": "nartc.jpg",
+    "twitter": "Nartc1410",
+    "website": "https://nartc.me",
+    "bio": "Chau works to bring the best engineering practices to web application production. He is the creator of AutoMapper TypeScript, @ngneat/tailwind for Angular, and a core member of NestJS. Also, he is one of Angular Vietnam’s founders. He blogs, lives stream, and maintains open-source projects.",
+    "groups": ["GDE"]
+  },
   "nirkaufman": {
     "name": "Nir Kaufman",
     "picture": "nirkaufman.jpg",
     "twitter": "nirkaufman",
-    "website": "http://ngnir.life/",
     "bio": "Nir is a Principal Frontend Consultant & Head of the Angular department at 500Tech, Google Developer Expert and community leader. He organizes the largest Angular meetup group in Israel (Angular-IL), talks and teaches about front-end technologies around the world. He is also the author of two books about Angular and the founder of the 'Frontend Band'.",
+    "groups": ["GDE"]
+  },
+  "nishugoel": {
+    "name": "Nishu Goel",
+    "picture": "nishugoel.jpg",
+    "twitter": "TheNishuGoel",
+    "website": "https://unravelweb.dev",
+    "bio": "Nishu is a Google Developer Expert for Angular and loves to share her learning with everyone. She is the author of the book Step by Step Angular Routing and has written a code-text based course on educative.io. She is a frontend engineer at The DataWorks, London and is recognized as a Microsoft MVP.",
     "groups": ["GDE"]
   },
   "pascalprecht": {
@@ -754,7 +767,6 @@
     "name": "Sander Elias",
     "picture": "sanderelias.jpg",
     "twitter": "esoSanderElias",
-    "website": "https://sanderelias.nl",
     "bio": "Sander is a versed developer with over 4 decades of practice under his belt. He is also an Google Developer Expert for web, specializing in Angular. Organizer of meetups and conferences. Helping out others wherever he can. When he is not breathing code, he is fiddling around with IOT, photography, science and anything that might vaguely is gadget-like! Thinks he a master of the grill, but in reality you probably don't get a food-poisoning ;) Also, and actually the most important thing to him, he is a father of 4, and has the most patient girlfriend in the universe.",
     "groups": ["GDE"]
   },
@@ -786,7 +798,6 @@
     "name": "Siddharth Ajmera",
     "picture": "sidd-ajmera.jpg",
     "twitter": "SiddAjmera",
-    "website": "https://webstackup.com/",
     "bio": "Siddharth is a Full Stack JavaScript Developer and a GDE in Angular. He's passionate about sharing his knowledge on Angular, Firebase and the Web in general. He's the organizer of WebStack, a local community of developers focused on Web, Mobile, Voice and Server related technologies in general. WebStack hosts free monthly meetups every 2nd or 3rd Saturday of the month. Siddharth is also an avid photographer and loves traveling. Find him anywhere on the Web with `SiddAjmera`.",
     "groups": ["GDE"]
   },
@@ -871,7 +882,6 @@
     "name": "Emma Twersky",
     "picture": "twerske.jpg",
     "twitter": "twerske",
-    "website": "https://twerske.github.io/",
     "bio": "Emma is a Developer Advocate at Google. She is passionate about good user experiences and design.",
     "groups": ["Angular"],
     "lead": "mgechev"
@@ -956,4 +966,3 @@
     "lead": "jelbourn"
   }
 }
-
