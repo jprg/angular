@@ -8,14 +8,14 @@
 
 import {ASTWithSource, Binary, BindingPipe, Conditional, Interpolation, PropertyRead, TmplAstBoundAttribute, TmplAstBoundText, TmplAstElement, TmplAstNode, TmplAstReference, TmplAstTemplate} from '@angular/compiler';
 import {AST, LiteralArray, LiteralMap} from '@angular/compiler/src/compiler';
-import * as ts from 'typescript';
+import ts from 'typescript';
 
 import {absoluteFrom, AbsoluteFsPath, getSourceFileOrError} from '../../file_system';
 import {runInEachFileSystem} from '../../file_system/testing';
 import {ClassDeclaration} from '../../reflection';
 import {DirectiveSymbol, DomBindingSymbol, ElementSymbol, ExpressionSymbol, InputBindingSymbol, OutputBindingSymbol, PipeSymbol, ReferenceSymbol, Symbol, SymbolKind, TemplateSymbol, TemplateTypeChecker, TypeCheckingConfig, VariableSymbol} from '../api';
 
-import {getClass, ngForDeclaration, ngForTypeCheckTarget, setup as baseTestSetup, TypeCheckingTarget} from './test_utils';
+import {getClass, ngForDeclaration, ngForTypeCheckTarget, setup as baseTestSetup, TypeCheckingTarget} from '../testing';
 
 runInEachFileSystem(() => {
   describe('TemplateTypeChecker.getSymbolOfNode', () => {
@@ -223,8 +223,9 @@ runInEachFileSystem(() => {
 
         beforeEach(() => {
           const fileName = absoluteFrom('/main.ts');
+          const dirFile = absoluteFrom('/dir.ts');
           const templateString = `
-              <div *ngFor="let user of users; let i = index;">
+              <div *ngFor="let user of users; let i = index;" dir>
                 {{user.name}} {{user.streetNumber}}
                 <div [tabIndex]="i"></div>
               </div>`;
@@ -239,15 +240,36 @@ runInEachFileSystem(() => {
             }
             export class Cmp { users: User[]; }
             `,
-              declarations: [ngForDeclaration()],
+              declarations: [
+                ngForDeclaration(),
+                {
+                  name: 'TestDir',
+                  selector: '[dir]',
+                  file: dirFile,
+                  type: 'directive',
+                  inputs: {name: 'name'}
+                },
+              ],
             },
             ngForTypeCheckTarget(),
+            {
+              fileName: dirFile,
+              source: `export class TestDir {name:string}`,
+              templates: {},
+            },
           ]);
           templateTypeChecker = testValues.templateTypeChecker;
           program = testValues.program;
           const sf = getSourceFileOrError(testValues.program, fileName);
           cmp = getClass(sf, 'Cmp');
           templateNode = getAstTemplates(templateTypeChecker, cmp)[0];
+        });
+
+        it('should retrieve a symbol for a directive on a microsyntax template', () => {
+          const symbol = templateTypeChecker.getSymbolOfNode(templateNode, cmp);
+          const testDir = symbol?.directives.find(dir => dir.selector === '[dir]');
+          expect(testDir).toBeDefined();
+          expect(program.getTypeChecker().symbolToString(testDir!.tsSymbol)).toEqual('TestDir');
         });
 
         it('should retrieve a symbol for an expression inside structural binding', () => {
@@ -445,13 +467,10 @@ runInEachFileSystem(() => {
           const safeMethodCall = nodes[2].inputs[0].value as ASTWithSource;
           const methodCallSymbol = templateTypeChecker.getSymbolOfNode(safeMethodCall, cmp)!;
           assertExpressionSymbol(methodCallSymbol);
-          expect(program.getTypeChecker().symbolToString(methodCallSymbol.tsSymbol!))
-              .toEqual('speak');
-          expect((methodCallSymbol.tsSymbol!.declarations![0] as ts.PropertyDeclaration)
-                     .parent.name!.getText())
-              .toEqual('Person');
+          // Note that the symbol returned is for the return value of the safe method call.
+          expect(methodCallSymbol.tsSymbol).toBeNull();
           expect(program.getTypeChecker().typeToString(methodCallSymbol.tsType))
-              .toEqual('string | undefined');
+              .toBe('string | undefined');
         });
 
         it('safe keyed reads', () => {
@@ -833,7 +852,7 @@ runInEachFileSystem(() => {
         expect(program.getTypeChecker().typeToString(writeSymbol.tsType)).toEqual('any');
       });
 
-      it('should get a symbol for MethodCall expressions', () => {
+      it('should get a symbol for Call expressions', () => {
         const fileName = absoluteFrom('/main.ts');
         const {templateTypeChecker, program} = setup([
           {
@@ -847,14 +866,9 @@ runInEachFileSystem(() => {
         const node = getAstElements(templateTypeChecker, cmp)[0];
         const callSymbol = templateTypeChecker.getSymbolOfNode(node.inputs[0].value, cmp)!;
         assertExpressionSymbol(callSymbol);
-        // Note that the symbol returned is for the method name of the MethodCall. The AST
-        // does not support specific designation for the name so we assume that's what
-        // is wanted in this case. We don't support retrieving a symbol for the whole
-        // call expression and if you want to get a symbol for the args, you can
-        // use the AST of the args in the `MethodCall`.
-        expect(program.getTypeChecker().symbolToString(callSymbol.tsSymbol!)).toEqual('toString');
-        expect(program.getTypeChecker().typeToString(callSymbol.tsType))
-            .toEqual('(v: any) => string');
+        // Note that the symbol returned is for the return value of the Call.
+        expect(callSymbol.tsSymbol).toBeNull();
+        expect(program.getTypeChecker().typeToString(callSymbol.tsType)).toBe('string');
       });
     });
 

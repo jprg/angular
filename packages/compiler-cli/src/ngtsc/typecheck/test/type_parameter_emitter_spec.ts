@@ -5,7 +5,7 @@
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file at https://angular.io/license
  */
-import * as ts from 'typescript';
+import ts from 'typescript';
 
 import {absoluteFrom} from '../../file_system';
 import {runInEachFileSystem, TestFile} from '../../file_system/testing';
@@ -13,7 +13,7 @@ import {isNamedClassDeclaration, TypeScriptReflectionHost} from '../../reflectio
 import {getDeclaration, makeProgram} from '../../testing';
 import {TypeParameterEmitter} from '../src/type_parameter_emitter';
 
-import {angularCoreDts} from './test_utils';
+import {angularCoreDts} from '../testing';
 
 
 runInEachFileSystem(() => {
@@ -84,6 +84,28 @@ runInEachFileSystem(() => {
           .toEqual('<T extends string & boolean>');
       expect(emit(createEmitter(`export class TestClass<T extends { [key: string]: boolean }> {}`)))
           .toEqual('<T extends {\n    [key: string]: boolean;\n}>');
+    });
+
+    it('can emit literal types', () => {
+      expect(emit(createEmitter(`export class TestClass<T extends 'a"a'> {}`)))
+          .toEqual(`<T extends "a\\"a">`);
+      expect(emit(createEmitter(`export class TestClass<T extends "b\\\"b"> {}`)))
+          .toEqual(`<T extends "b\\"b">`);
+      expect(emit(createEmitter(`export class TestClass<T extends \`c\\\`c\`> {}`)))
+          .toEqual(`<T extends \`c\\\`c\`>`);
+      expect(emit(createEmitter(`export class TestClass<T extends -1> {}`)))
+          .toEqual(`<T extends -1>`);
+      expect(emit(createEmitter(`export class TestClass<T extends 1> {}`)))
+          .toEqual(`<T extends 1>`);
+      expect(emit(createEmitter(`export class TestClass<T extends 1n> {}`)))
+          .toEqual(`<T extends 1n>`);
+    });
+
+    it('cannot emit import types', () => {
+      const emitter = createEmitter(`export class TestClass<T extends import('module')> {}`);
+
+      expect(emitter.canEmit()).toBe(false);
+      expect(() => emit(emitter)).toThrowError('Unable to emit import type');
     });
 
     it('can emit references into external modules', () => {
@@ -179,6 +201,62 @@ runInEachFileSystem(() => {
 
       expect(emitter.canEmit()).toBe(true);
       expect(emit(emitter)).toEqual('<T extends test.Internal>');
+    });
+
+    it('can emit references to exported classes imported using a namespace import', () => {
+      const additionalFiles: TestFile[] = [{
+        name: absoluteFrom('/internal.ts'),
+        contents: `export class Internal {}`,
+      }];
+      const emitter = createEmitter(
+          `
+        import * as ns from './internal';
+
+        export class TestClass<T extends ns.Internal> {}`,
+          additionalFiles);
+
+      expect(emitter.canEmit()).toBe(true);
+      expect(emit(emitter)).toEqual('<T extends test.Internal>');
+    });
+
+    it('cannot emit references to local classes exported within a namespace', () => {
+      const additionalFiles: TestFile[] = [{
+        name: absoluteFrom('/ns.ts'),
+        contents: `
+          export namespace ns {
+            export class Nested {}
+          }
+        `,
+      }];
+      const emitter = createEmitter(
+          `
+          import {ns} from './ns';
+
+          export class TestClass<T extends ns.Nested> {}`,
+          additionalFiles);
+
+      expect(emitter.canEmit()).toBe(false);
+      expect(() => emit(emitter)).toThrowError('Unable to emit an unresolved reference');
+    });
+
+    it('cannot emit references to external classes exported within a namespace', () => {
+      const additionalFiles: TestFile[] = [{
+        name: absoluteFrom('/node_modules/ns/index.d.ts'),
+        contents: `
+          export namespace ns {
+            export declare class Nested {}
+          }
+        `,
+      }];
+      const emitter = createEmitter(
+          `
+          import {ns} from 'ns';
+
+          export class TestClass<T extends ns.Nested> {}`,
+          additionalFiles);
+
+      expect(emitter.canEmit()).toBe(false);
+      expect(() => emit(emitter)).toThrowError('Unable to emit an unresolved reference');
     });
 
     it('can emit references to interfaces', () => {

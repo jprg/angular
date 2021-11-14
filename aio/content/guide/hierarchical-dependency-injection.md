@@ -380,7 +380,7 @@ The following is an example of how the `<app-root>` and `<app-child>` view trees
        ...content goes here...
      </#VIEW>
     </app-child>
-  <#VIEW>
+  </#VIEW>
 </app-root>
  ```
 
@@ -1021,8 +1021,8 @@ The logical tree representation shows why this is:
          @Inject(AnimalService, @Optional)=>"🦔">
     <!-- ^^@SkipSelf() starts here,  @Host() stops here^^ -->
     <app-child>
-      <#VIEW @Provide(AnimalService="🦔")
-             @Inject(AnimalService, @SkipSelf, @Host, @Optional)=>"🐶">
+      <#VIEW @Provide(AnimalService="🐶")
+             @Inject(AnimalService, @SkipSelf, @Host, @Optional)=>"🦔">
                <!-- Add @SkipSelf ^^-->
       </#VIEW>
       </app-child>
@@ -1072,7 +1072,7 @@ the service becomes available only in the `VillainsListComponent` and its sub-co
 `VillainService` is a singleton with respect to `VillainsListComponent`
 because that is where it is declared. As long as `VillainsListComponent`
 does not get destroyed it will be the same instance of `VillainService`
-but if there are multilple instances of `VillainsListComponent`, then each
+but if there are multiple instances of `VillainsListComponent`, then each
 instance of `VillainsListComponent` will have its own instance of `VillainService`.
 
 

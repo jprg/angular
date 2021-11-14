@@ -9,8 +9,8 @@
 import * as chars from '../chars';
 import {DEFAULT_INTERPOLATION_CONFIG, InterpolationConfig} from '../ml_parser/interpolation_config';
 
-import {AbsoluteSourceSpan, AST, AstVisitor, ASTWithSource, Binary, BindingPipe, Chain, Conditional, EmptyExpr, ExpressionBinding, FunctionCall, ImplicitReceiver, Interpolation, KeyedRead, KeyedWrite, LiteralArray, LiteralMap, LiteralMapKey, LiteralPrimitive, MethodCall, NonNullAssert, ParserError, ParseSpan, PrefixNot, PropertyRead, PropertyWrite, Quote, RecursiveAstVisitor, SafeKeyedRead, SafeMethodCall, SafePropertyRead, TemplateBinding, TemplateBindingIdentifier, ThisReceiver, Unary, VariableBinding} from './ast';
-import {EOF, isIdentifier, isQuote, Lexer, Token, TokenType} from './lexer';
+import {AbsoluteSourceSpan, AST, AstVisitor, ASTWithSource, Binary, BindingPipe, Call, Chain, Conditional, EmptyExpr, ExpressionBinding, ImplicitReceiver, Interpolation, KeyedRead, KeyedWrite, LiteralArray, LiteralMap, LiteralMapKey, LiteralPrimitive, NonNullAssert, ParserError, ParseSpan, PrefixNot, PropertyRead, PropertyWrite, Quote, RecursiveAstVisitor, SafeKeyedRead, SafePropertyRead, TemplateBinding, TemplateBindingIdentifier, ThisReceiver, Unary, VariableBinding} from './ast';
+import {EOF, isIdentifier, Lexer, Token, TokenType} from './lexer';
 
 export interface InterpolationPiece {
   text: string;
@@ -291,7 +291,7 @@ export class Parser {
 
       if (outerQuote === char) {
         outerQuote = null;
-      } else if (outerQuote == null && isQuote(char)) {
+      } else if (outerQuote == null && chars.isQuote(char)) {
         outerQuote = char;
       }
     }
@@ -355,7 +355,7 @@ export class Parser {
       const char = input[i];
       // Skip the characters inside quotes. Note that we only care about the outer-most
       // quotes matching up and we need to account for escape characters.
-      if (isQuote(input.charCodeAt(i)) && (currentQuote === null || currentQuote === char) &&
+      if (chars.isQuote(input.charCodeAt(i)) && (currentQuote === null || currentQuote === char) &&
           escapeCount % 2 === 0) {
         currentQuote = currentQuote === null ? char : null;
       } else if (currentQuote === null) {
@@ -367,7 +367,7 @@ export class Parser {
 }
 
 export class IvyParser extends Parser {
-  simpleExpressionChecker = IvySimpleExpressionChecker;
+  override simpleExpressionChecker = IvySimpleExpressionChecker;
 }
 
 /** Describes a stateful context an expression parser is in. */
@@ -819,21 +819,23 @@ export class _ParseAST {
     let result = this.parsePrimary();
     while (true) {
       if (this.consumeOptionalCharacter(chars.$PERIOD)) {
-        result = this.parseAccessMemberOrMethodCall(result, start, false);
+        result = this.parseAccessMemberOrCall(result, start, false);
 
       } else if (this.consumeOptionalOperator('?.')) {
         result = this.consumeOptionalCharacter(chars.$LBRACKET) ?
             this.parseKeyedReadOrWrite(result, start, true) :
-            this.parseAccessMemberOrMethodCall(result, start, true);
+            this.parseAccessMemberOrCall(result, start, true);
       } else if (this.consumeOptionalCharacter(chars.$LBRACKET)) {
         result = this.parseKeyedReadOrWrite(result, start, false);
       } else if (this.consumeOptionalCharacter(chars.$LPAREN)) {
+        const argumentStart = this.inputIndex;
         this.rparensExpected++;
         const args = this.parseCallArguments();
+        const argumentSpan =
+            this.span(argumentStart, this.inputIndex).toAbsolute(this.absoluteOffset);
         this.rparensExpected--;
         this.expectCharacter(chars.$RPAREN);
-        result = new FunctionCall(this.span(start), this.sourceSpan(start), result, args);
-
+        result = new Call(this.span(start), this.sourceSpan(start), result, args, argumentSpan);
       } else if (this.consumeOptionalOperator('!')) {
         result = new NonNullAssert(this.span(start), this.sourceSpan(start), result);
 
@@ -882,7 +884,7 @@ export class _ParseAST {
       return this.parseLiteralMap();
 
     } else if (this.next.isIdentifier()) {
-      return this.parseAccessMemberOrMethodCall(
+      return this.parseAccessMemberOrCall(
           new ImplicitReceiver(this.span(start), this.sourceSpan(start)), start, false);
 
     } else if (this.next.isNumber()) {
@@ -953,16 +955,41 @@ export class _ParseAST {
     return new LiteralMap(this.span(start), this.sourceSpan(start), keys, values);
   }
 
-  parseAccessMemberOrMethodCall(receiver: AST, start: number, isSafe: boolean): AST {
+  parseAccessMemberOrCall(readReceiver: AST, start: number, isSafe: boolean): AST {
     const nameStart = this.inputIndex;
     const id = this.withContext(ParseContextFlags.Writable, () => {
       const id = this.expectIdentifierOrKeyword() ?? '';
       if (id.length === 0) {
-        this.error(`Expected identifier for property access`, receiver.span.end);
+        this.error(`Expected identifier for property access`, readReceiver.span.end);
       }
       return id;
     });
     const nameSpan = this.sourceSpan(nameStart);
+    let receiver: AST;
+
+    if (isSafe) {
+      if (this.consumeOptionalOperator('=')) {
+        this.error('The \'?.\' operator cannot be used in the assignment');
+        receiver = new EmptyExpr(this.span(start), this.sourceSpan(start));
+      } else {
+        receiver = new SafePropertyRead(
+            this.span(start), this.sourceSpan(start), nameSpan, readReceiver, id);
+      }
+    } else {
+      if (this.consumeOptionalOperator('=')) {
+        if (!this.parseAction) {
+          this.error('Bindings cannot contain assignments');
+          return new EmptyExpr(this.span(start), this.sourceSpan(start));
+        }
+
+        const value = this.parseConditional();
+        receiver = new PropertyWrite(
+            this.span(start), this.sourceSpan(start), nameSpan, readReceiver, id, value);
+      } else {
+        receiver =
+            new PropertyRead(this.span(start), this.sourceSpan(start), nameSpan, readReceiver, id);
+      }
+    }
 
     if (this.consumeOptionalCharacter(chars.$LPAREN)) {
       const argumentStart = this.inputIndex;
@@ -970,39 +997,14 @@ export class _ParseAST {
       const args = this.parseCallArguments();
       const argumentSpan =
           this.span(argumentStart, this.inputIndex).toAbsolute(this.absoluteOffset);
-
       this.expectCharacter(chars.$RPAREN);
       this.rparensExpected--;
       const span = this.span(start);
       const sourceSpan = this.sourceSpan(start);
-      return isSafe ?
-          new SafeMethodCall(span, sourceSpan, nameSpan, receiver, id, args, argumentSpan) :
-          new MethodCall(span, sourceSpan, nameSpan, receiver, id, args, argumentSpan);
-
-    } else {
-      if (isSafe) {
-        if (this.consumeOptionalOperator('=')) {
-          this.error('The \'?.\' operator cannot be used in the assignment');
-          return new EmptyExpr(this.span(start), this.sourceSpan(start));
-        } else {
-          return new SafePropertyRead(
-              this.span(start), this.sourceSpan(start), nameSpan, receiver, id);
-        }
-      } else {
-        if (this.consumeOptionalOperator('=')) {
-          if (!this.parseAction) {
-            this.error('Bindings cannot contain assignments');
-            return new EmptyExpr(this.span(start), this.sourceSpan(start));
-          }
-
-          const value = this.parseConditional();
-          return new PropertyWrite(
-              this.span(start), this.sourceSpan(start), nameSpan, receiver, id, value);
-        } else {
-          return new PropertyRead(this.span(start), this.sourceSpan(start), nameSpan, receiver, id);
-        }
-      }
+      return new Call(span, sourceSpan, receiver, args, argumentSpan);
     }
+
+    return receiver;
   }
 
   parseCallArguments(): BindingPipe[] {
@@ -1318,11 +1320,7 @@ class SimpleExpressionChecker implements AstVisitor {
 
   visitSafePropertyRead(ast: SafePropertyRead, context: any) {}
 
-  visitMethodCall(ast: MethodCall, context: any) {}
-
-  visitSafeMethodCall(ast: SafeMethodCall, context: any) {}
-
-  visitFunctionCall(ast: FunctionCall, context: any) {}
+  visitCall(ast: Call, context: any) {}
 
   visitLiteralArray(ast: LiteralArray, context: any) {
     this.visitAll(ast.expressions, context);
@@ -1371,7 +1369,7 @@ class SimpleExpressionChecker implements AstVisitor {
 class IvySimpleExpressionChecker extends RecursiveAstVisitor implements SimpleExpressionChecker {
   errors: string[] = [];
 
-  visitPipe() {
+  override visitPipe() {
     this.errors.push('pipes');
   }
 }

@@ -5,10 +5,10 @@
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file at https://angular.io/license
  */
-import {PathManipulation} from '@angular/compiler-cli/src/ngtsc/file_system';
 import MagicString from 'magic-string';
-import * as ts from 'typescript';
+import ts from 'typescript';
 
+import {PathManipulation} from '../../../src/ngtsc/file_system';
 import {Reexport} from '../../../src/ngtsc/imports';
 import {Import, ImportManager} from '../../../src/ngtsc/translator';
 import {ExportInfo} from '../analysis/private_declarations_analyzer';
@@ -31,7 +31,7 @@ export class CommonJsRenderingFormatter extends Esm5RenderingFormatter {
   /**
    *  Add the imports below any in situ imports as `require` calls.
    */
-  addImports(output: MagicString, imports: Import[], file: ts.SourceFile): void {
+  override addImports(output: MagicString, imports: Import[], file: ts.SourceFile): void {
     // Avoid unnecessary work if there are no imports to add.
     if (imports.length === 0) {
       return;
@@ -46,7 +46,7 @@ export class CommonJsRenderingFormatter extends Esm5RenderingFormatter {
   /**
    * Add the exports to the bottom of the file.
    */
-  addExports(
+  override addExports(
       output: MagicString, entryPointBasePath: string, exports: ExportInfo[],
       importManager: ImportManager, file: ts.SourceFile): void {
     exports.forEach(e => {
@@ -61,7 +61,7 @@ export class CommonJsRenderingFormatter extends Esm5RenderingFormatter {
     });
   }
 
-  addDirectExports(
+  override addDirectExports(
       output: MagicString, exports: Reexport[], importManager: ImportManager,
       file: ts.SourceFile): void {
     for (const e of exports) {
@@ -72,7 +72,7 @@ export class CommonJsRenderingFormatter extends Esm5RenderingFormatter {
     }
   }
 
-  protected findEndOfImports(sf: ts.SourceFile): number {
+  protected override findEndOfImports(sf: ts.SourceFile): number {
     for (const statement of sf.statements) {
       if (ts.isExpressionStatement(statement) && isRequireCall(statement.expression)) {
         continue;

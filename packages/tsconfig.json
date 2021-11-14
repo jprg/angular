@@ -7,28 +7,46 @@
     "downlevelIteration": true,
     "experimentalDecorators": true,
     "emitDecoratorMetadata": true,
-    "module": "commonjs",
+    "module": "es2020",
     "strict": true,
     "moduleResolution": "node",
+    "esModuleInterop": true,
     "strictNullChecks": true,
     "strictPropertyInitialization": true,
     "outDir": "../dist/all/@angular",
     "noImplicitAny": true,
+    "noImplicitOverride": true,
+    "useUnknownInCatchVariables": false,
     "noFallthroughCasesInSwitch": true,
     "paths": {
-      "selenium-webdriver": ["./node_modules/@types/selenium-webdriver/index.d.ts"],
-      "rxjs/*": ["./node_modules/rxjs/*"],
-      "@angular/*": ["./packages/*"],
-      "zone.js/*": ["./packages/zone.js/*"],
-      "angular-in-memory-web-api": ["./packages/misc/angular-in-memory-web-api/index.ts"]
+      "selenium-webdriver": [
+        "./node_modules/@types/selenium-webdriver/index.d.ts"
+      ],
+      "rxjs/*": [
+        "./node_modules/rxjs/*"
+      ],
+      "@angular/*": [
+        "./packages/*"
+      ],
+      "zone.js/*": [
+        "./packages/zone.js/*"
+      ],
+      "angular-in-memory-web-api": [
+        "./packages/misc/angular-in-memory-web-api/index.ts"
+      ]
     },
     "rootDir": ".",
     "inlineSourceMap": true,
-    "lib": ["es5", "dom", "es2015.promise", "es2015.collection", "es2015.iterable", "es2015.core", "es2017.object"],
+    "lib": [
+      "es2020",
+      "dom"
+    ],
     "skipDefaultLibCheck": true,
     "skipLibCheck": true,
-    "target": "es5",
-    "types": ["angular"]
+    "target": "es2020",
+    "types": [
+      "angular"
+    ]
   },
   "bazelOptions": {
     "suppressTsconfigOverrideWarnings": true
@@ -46,7 +64,7 @@
     // Http doesn't need to built since it is no longer maintained and
     // will be removed eventually. See: FW-1392.
     "http/**",
-    "language-service/test/project",
+    "language-service/ivy/test/legacy/project",
     "platform-server/integrationtest",
     "router/test/aot_ngsummary_test"
   ]

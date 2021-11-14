@@ -36,8 +36,8 @@ module.exports = function(config) {
       {pattern: 'node_modules/angular-mocks-1.6/angular-mocks.js', included: false, watched: false},
       {pattern: 'node_modules/angular-1.7/angular?(.min).js', included: false, watched: false},
       {pattern: 'node_modules/angular-mocks-1.7/angular-mocks.js', included: false, watched: false},
-      {pattern: 'node_modules/angular/angular?(.min).js', included: false, watched: false},
-      {pattern: 'node_modules/angular-mocks/angular-mocks.js', included: false, watched: false},
+      {pattern: 'node_modules/angular-1.8/angular?(.min).js', included: false, watched: false},
+      {pattern: 'node_modules/angular-mocks-1.8/angular-mocks.js', included: false, watched: false},
 
       'node_modules/core-js-bundle/index.js',
       'node_modules/jasmine-ajax/lib/mock-ajax.js',
@@ -50,7 +50,7 @@ module.exports = function(config) {
 
       // Including systemjs because it defines `__eval`, which produces correct stack traces.
       'test-events.js',
-      'third_party/shims_for_IE.js',
+      'third_party/shims_for_internal_tests.js',
       'node_modules/systemjs/dist/system.src.js',
 
       // Serve polyfills necessary for testing the `elements` package.
@@ -102,7 +102,6 @@ module.exports = function(config) {
 
     plugins: [
       'karma-jasmine',
-      'karma-browserstack-launcher',
       'karma-sauce-launcher',
       'karma-chrome-launcher',
       'karma-sourcemap-loader',
@@ -134,14 +133,6 @@ module.exports = function(config) {
       maxDuration: 5400,
     },
 
-    browserStack: {
-      project: 'Angular2',
-      startTunnel: false,
-      retryLimit: 3,
-      timeout: 1800,
-      pollingTimeout: 10000,
-    },
-
     // Try "websocket" for a faster transmission first. Fallback to "polling" if necessary.
     transports: ['websocket', 'polling'],
 
@@ -168,11 +159,6 @@ module.exports = function(config) {
     // Setup the Saucelabs plugin so that it can launch browsers using the proper tunnel.
     conf.sauceLabs.build = tunnelIdentifier;
     conf.sauceLabs.tunnelIdentifier = tunnelIdentifier;
-
-    // Setup the Browserstack plugin so that it can launch browsers using the proper tunnel.
-    // TODO: This is currently not used because BS doesn't run on the CI. Consider removing.
-    conf.browserStack.build = tunnelIdentifier;
-    conf.browserStack.tunnelIdentifier = tunnelIdentifier;
   }
 
   // For SauceLabs jobs, we set up a domain which resolves to the machine which launched
@@ -188,8 +174,7 @@ module.exports = function(config) {
   }
 
   if (process.env.KARMA_WEB_TEST_MODE) {
-    // KARMA_WEB_TEST_MODE is used to setup karma to run in
-    // SauceLabs or Browserstack
+    // KARMA_WEB_TEST_MODE is used to setup karma to run in SauceLabs.
     console.log(`KARMA_WEB_TEST_MODE: ${process.env.KARMA_WEB_TEST_MODE}`);
 
     switch (process.env.KARMA_WEB_TEST_MODE) {
@@ -198,12 +183,6 @@ module.exports = function(config) {
         break;
       case 'SL_OPTIONAL':
         conf.browsers = browserProvidersConf.sauceAliases.CI_OPTIONAL;
-        break;
-      case 'BS_REQUIRED':
-        conf.browsers = browserProvidersConf.browserstackAliases.CI_REQUIRED;
-        break;
-      case 'BS_OPTIONAL':
-        conf.browsers = browserProvidersConf.browserstackAliases.CI_OPTIONAL;
         break;
       default:
         throw new Error(

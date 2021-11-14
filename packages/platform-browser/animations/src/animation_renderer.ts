@@ -34,8 +34,9 @@ export class AnimationRendererFactory implements RendererFactory2 {
       // a host leave animation, the view engine will call `removeChild` for the parent
       // component renderer as well as for the child component renderer.
       // Therefore, we need to check if we already removed the element.
-      if (delegate && delegate.parentNode(element)) {
-        delegate.removeChild(element.parentNode, element);
+      const parentNode = delegate?.parentNode(element);
+      if (parentNode) {
+        delegate.removeChild(parentNode, element);
       }
     };
   }
@@ -241,7 +242,7 @@ export class AnimationRenderer extends BaseAnimationRenderer implements Renderer
     this.namespaceId = namespaceId;
   }
 
-  setProperty(el: any, name: string, value: any): void {
+  override setProperty(el: any, name: string, value: any): void {
     if (name.charAt(0) == ANIMATION_PREFIX) {
       if (name.charAt(1) == '.' && name == DISABLE_ANIMATIONS_FLAG) {
         value = value === undefined ? true : !!value;
@@ -254,8 +255,9 @@ export class AnimationRenderer extends BaseAnimationRenderer implements Renderer
     }
   }
 
-  listen(target: 'window'|'document'|'body'|any, eventName: string, callback: (event: any) => any):
-      () => void {
+  override listen(
+      target: 'window'|'document'|'body'|any, eventName: string,
+      callback: (event: any) => any): () => void {
     if (eventName.charAt(0) == ANIMATION_PREFIX) {
       const element = resolveElementFromTarget(target);
       let name = eventName.substr(1);

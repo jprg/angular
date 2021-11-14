@@ -12,11 +12,8 @@ import {ComponentFixture} from './component_fixture';
 import {MetadataOverride} from './metadata_override';
 import {TestBed} from './test_bed';
 
-/**
- * Whether test modules should be torn down by default.
- * Currently disabled for backwards-compatibility reasons.
- */
-export const TEARDOWN_TESTING_MODULE_ON_DESTROY_DEFAULT = false;
+/** Whether test modules should be torn down by default. */
+export const TEARDOWN_TESTING_MODULE_ON_DESTROY_DEFAULT = true;
 
 /**
  * An abstract class for inserting the root test component element in a platform independent way.
@@ -47,6 +44,9 @@ export type TestModuleMetadata = {
   declarations?: any[],
   imports?: any[],
   schemas?: Array<SchemaMetadata|any[]>,
+  /**
+   * @deprecated With Ivy, AOT summary files are unused.
+   */
   aotSummaries?: () => any[],
   teardown?: ModuleTeardownOptions;
 };
@@ -55,12 +55,21 @@ export type TestModuleMetadata = {
  * @publicApi
  */
 export interface TestEnvironmentOptions {
+  /**
+   * Provides a way to specify AOT summaries to use in TestBed.
+   * This parameter is unused and deprecated in Ivy.
+   *
+   * @deprecated With Ivy, AOT summary files are unused.
+   */
   aotSummaries?: () => any[];
+  /**
+   * Configures the test module teardown behavior in `TestBed`.
+   */
   teardown?: ModuleTeardownOptions;
 }
 
 /**
- * Object used to configure the test module teardown behavior in `TestBed`.
+ * Configures the test module teardown behavior in `TestBed`.
  * @publicApi
  */
 export interface ModuleTeardownOptions {
@@ -79,9 +88,34 @@ export interface ModuleTeardownOptions {
 export interface TestBedStatic {
   new(...args: any[]): TestBed;
 
-  initTestEnvironment(ngModule: Type<any>|Type<any>[], platform: PlatformRef, options?: {
-    teardown?: ModuleTeardownOptions
-  }): TestBed;
+  /**
+   * Initialize the environment for testing with a compiler factory, a PlatformRef, and an
+   * angular module. These are common to every test in the suite.
+   *
+   * This may only be called once, to set up the common providers for the current test
+   * suite on the current platform. If you absolutely need to change the providers,
+   * first use `resetTestEnvironment`.
+   *
+   * Test modules and platforms for individual platforms are available from
+   * '@angular/<platform_name>/testing'.
+   */
+  initTestEnvironment(
+      ngModule: Type<any>|Type<any>[], platform: PlatformRef,
+      options?: TestEnvironmentOptions): TestBed;
+  /**
+   * Initialize the environment for testing with a compiler factory, a PlatformRef, and an
+   * angular module. These are common to every test in the suite.
+   *
+   * This may only be called once, to set up the common providers for the current test
+   * suite on the current platform. If you absolutely need to change the providers,
+   * first use `resetTestEnvironment`.
+   *
+   * Test modules and platforms for individual platforms are available from
+   * '@angular/<platform_name>/testing'.
+   *
+   * @deprecated This API that allows providing AOT summaries is deprecated, since summary files are
+   *     unused in Ivy.
+   */
   initTestEnvironment(
       ngModule: Type<any>|Type<any>[], platform: PlatformRef, aotSummaries?: () => any[]): TestBed;
 

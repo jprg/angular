@@ -7,7 +7,7 @@
  */
 
 import {GeneratedFile, HtmlParser, MessageBundle} from '@angular/compiler';
-import * as ts from 'typescript';
+import ts from 'typescript';
 
 import * as api from '../transformers/api';
 import {i18nExtract} from '../transformers/i18n';
@@ -37,7 +37,6 @@ export class NgtscProgram implements api.Program {
    */
   private tsProgram: ts.Program;
 
-  private closureCompilerEnabled: boolean;
   private host: NgCompilerHost;
   private incrementalStrategy: TrackedIncrementalBuildStrategy;
 
@@ -52,8 +51,6 @@ export class NgtscProgram implements api.Program {
     if (!options.disableTypeScriptVersionCheck) {
       verifySupportedTypeScriptVersion();
     }
-
-    this.closureCompilerEnabled = !!options.annotateForClosureCompiler;
 
     const reuseProgram = oldProgram?.compiler.getCurrentProgram();
     this.host = NgCompilerHost.wrap(delegateHost, rootNames, options, reuseProgram ?? null);
@@ -223,7 +220,7 @@ export class NgtscProgram implements api.Program {
   }
 
   listLazyRoutes(entryRoute?: string|undefined): api.LazyRoute[] {
-    return this.compiler.listLazyRoutes(entryRoute);
+    return [];
   }
 
   private emitXi18n(): void {

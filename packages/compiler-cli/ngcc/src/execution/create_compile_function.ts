@@ -6,15 +6,16 @@
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file at https://angular.io/license
  */
-import * as ts from 'typescript';
+import ts from 'typescript';
 
 import {replaceTsWithNgInErrors} from '../../../src/ngtsc/diagnostics';
 import {FileSystem} from '../../../src/ngtsc/file_system';
 import {Logger} from '../../../src/ngtsc/logging';
 import {ParsedConfiguration} from '../../../src/perform_compile';
-import {getEntryPointFormat} from '../packages/entry_point';
+import {EntryPointPackageJson, getEntryPointFormat} from '../packages/entry_point';
 import {makeEntryPointBundle} from '../packages/entry_point_bundle';
 import {createModuleResolutionCache, SharedFileCache} from '../packages/source_file_cache';
+import {Transformer} from '../packages/transformer';
 import {PathMappings} from '../path_mappings';
 import {FileWriter} from '../writing/file_writer';
 
@@ -29,7 +30,6 @@ export function getCreateCompileFn(
     enableI18nLegacyMessageIdFormat: boolean, tsConfig: ParsedConfiguration|null,
     pathMappings: PathMappings|undefined): CreateCompileFn {
   return (beforeWritingFiles, onTaskCompleted) => {
-    const {Transformer} = require('../packages/transformer');
     const transformer = new Transformer(fileSystem, logger, tsConfig);
     const sharedFileCache = new SharedFileCache(fileSystem);
     const moduleResolutionCache = createModuleResolutionCache(fileSystem);
@@ -55,7 +55,8 @@ export function getCreateCompileFn(
         return;
       }
 
-      logger.info(`Compiling ${entryPoint.name} : ${formatProperty} as ${format}`);
+      logger.info(
+          `- ${entryPoint.name} [${formatProperty}/${format}] (${entryPoint.repositoryUrl})`);
 
       const bundle = makeEntryPointBundle(
           fileSystem, entryPoint, sharedFileCache, moduleResolutionCache, formatPath, isCore,

@@ -6,9 +6,8 @@
  * found in the LICENSE file at https://angular.io/license
  */
 
-import {compileClassMetadata, compileDeclareClassMetadata, compileDeclareDirectiveFromMetadata, compileDirectiveFromMetadata, ConstantPool, Expression, ExternalExpr, FactoryTarget, getSafePropertyAccessString, makeBindingParser, ParsedHostBindings, ParseError, parseHostBindings, R3ClassMetadata, R3DirectiveMetadata, R3FactoryMetadata, R3QueryMetadata, Statement, verifyHostBindings, WrappedNodeExpr} from '@angular/compiler';
-import {emitDistinctChangesOnlyDefaultValue} from '@angular/compiler/src/core';
-import * as ts from 'typescript';
+import {compileClassMetadata, compileDeclareClassMetadata, compileDeclareDirectiveFromMetadata, compileDirectiveFromMetadata, ConstantPool, createMayBeForwardRefExpression, emitDistinctChangesOnlyDefaultValue, Expression, ExternalExpr, FactoryTarget, ForwardRefHandling, getSafePropertyAccessString, makeBindingParser, MaybeForwardRefExpression, ParsedHostBindings, ParseError, parseHostBindings, R3ClassMetadata, R3DirectiveMetadata, R3FactoryMetadata, R3QueryMetadata, Statement, verifyHostBindings, WrappedNodeExpr} from '@angular/compiler';
+import ts from 'typescript';
 
 import {ErrorCode, FatalDiagnosticError} from '../../diagnostics';
 import {Reference} from '../../imports';
@@ -64,7 +63,7 @@ export class DirectiveSymbol extends SemanticSymbol {
     super(decl);
   }
 
-  isPublicApiAffected(previousSymbol: SemanticSymbol): boolean {
+  override isPublicApiAffected(previousSymbol: SemanticSymbol): boolean {
     // Note: since components and directives have exactly the same items contributing to their
     // public API, it is okay for a directive to change into a component and vice versa without
     // the API being affected.
@@ -83,7 +82,7 @@ export class DirectiveSymbol extends SemanticSymbol {
         !isArrayEqual(this.exportAs, previousSymbol.exportAs);
   }
 
-  isTypeCheckApiAffected(previousSymbol: SemanticSymbol): boolean {
+  override isTypeCheckApiAffected(previousSymbol: SemanticSymbol): boolean {
     // If the public API of the directive has changed, then so has its type-check API.
     if (this.isPublicApiAffected(previousSymbol)) {
       return true;
@@ -532,17 +531,21 @@ export function extractQueryMetadata(
         ErrorCode.DECORATOR_ARITY_WRONG, exprNode, `@${name} must have arguments`);
   }
   const first = name === 'ViewChild' || name === 'ContentChild';
-  const node = tryUnwrapForwardRef(args[0], reflector) ?? args[0];
+  const forwardReferenceTarget = tryUnwrapForwardRef(args[0], reflector);
+  const node = forwardReferenceTarget ?? args[0];
+
   const arg = evaluator.evaluate(node);
 
   /** Whether or not this query should collect only static results (see view/api.ts)  */
   let isStatic: boolean = false;
 
   // Extract the predicate
-  let predicate: Expression|string[]|null = null;
+  let predicate: MaybeForwardRefExpression|string[]|null = null;
   if (arg instanceof Reference || arg instanceof DynamicValue) {
     // References and predicates that could not be evaluated statically are emitted as is.
-    predicate = new WrappedNodeExpr(node);
+    predicate = createMayBeForwardRefExpression(
+        new WrappedNodeExpr(node),
+        forwardReferenceTarget !== null ? ForwardRefHandling.Unwrapped : ForwardRefHandling.None);
   } else if (typeof arg === 'string') {
     predicate = [arg];
   } else if (isStringArrayOrDie(arg, `@${name} predicate`, node)) {

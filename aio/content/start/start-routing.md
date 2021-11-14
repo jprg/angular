@@ -18,8 +18,11 @@ The application already uses the Angular `Router` to navigate to the `ProductLis
 This section shows you how to define a route to show individual product details.
 
 1. Generate a new component for product details.
-    In the file list, right-click the `app` folder, choose `Angular Generator` and `Component`.
-    Name the component `product-details`.
+    In the terminal generate a new `product-details` component by running the following command:
+
+    ```sh
+    ng generate component product-details
+    ```
 
 1. In `app.module.ts`, add a route for product details, with a `path` of `products/:productId` and `ProductDetailsComponent` for the `component`.
 
@@ -112,3 +115,5 @@ To continue exploring Angular:
 
 * Continue to [Managing Data](start/start-data "Try it: Managing Data") to add a shopping cart feature, manage cart data, and retrieve external data for shipping prices.
 * Skip ahead to [Deployment](start/start-deployment "Try it: Deployment") to deploy your application to Firebase or move to local development.
+
+@reviewed 2021-09-15

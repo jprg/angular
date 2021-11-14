@@ -7,15 +7,16 @@
  */
 
 import {ConstantPool} from '@angular/compiler';
-import * as ts from 'typescript';
+import ts from 'typescript';
 
 import {ErrorCode, FatalDiagnosticError} from '../../diagnostics';
 import {IncrementalBuild} from '../../incremental/api';
 import {SemanticDepGraphUpdater, SemanticSymbol} from '../../incremental/semantic_graph';
 import {IndexingContext} from '../../indexer';
 import {PerfEvent, PerfRecorder} from '../../perf';
-import {ClassDeclaration, DeclarationNode, Decorator, ReflectionHost} from '../../reflection';
+import {ClassDeclaration, DeclarationNode, Decorator, isNamedClassDeclaration, ReflectionHost} from '../../reflection';
 import {ProgramTypeCheckAdapter, TypeCheckContext} from '../../typecheck/api';
+import {ExtendedTemplateChecker} from '../../typecheck/extended/api';
 import {getSourceFile, isExported} from '../../util/src/typescript';
 import {Xi18nContext} from '../../xi18n';
 
@@ -82,6 +83,12 @@ export class TraitCompiler implements ProgramTypeCheckAdapter {
    */
   protected fileToClasses = new Map<ts.SourceFile, Set<ClassDeclaration>>();
 
+  /**
+   * Tracks which source files have been analyzed but did not contain any traits. This set allows
+   * the compiler to skip analyzing these files in an incremental rebuild.
+   */
+  protected filesWithoutTraits = new Set<ts.SourceFile>();
+
   private reexportMap = new Map<string, Map<string, [string, string]>>();
 
   private handlersByName =
@@ -121,12 +128,17 @@ export class TraitCompiler implements ProgramTypeCheckAdapter {
 
     const priorWork = this.incrementalBuild.priorAnalysisFor(sf);
     if (priorWork !== null) {
-      for (const priorRecord of priorWork) {
-        this.adopt(priorRecord);
-      }
-
       this.perf.eventCount(PerfEvent.SourceFileReuseAnalysis);
-      this.perf.eventCount(PerfEvent.TraitReuseAnalysis, priorWork.length);
+
+      if (priorWork.length > 0) {
+        for (const priorRecord of priorWork) {
+          this.adopt(priorRecord);
+        }
+
+        this.perf.eventCount(PerfEvent.TraitReuseAnalysis, priorWork.length);
+      } else {
+        this.filesWithoutTraits.add(sf);
+      }
 
       // Skip the rest of analysis, as this file's prior traits are being reused.
       return;
@@ -175,6 +187,9 @@ export class TraitCompiler implements ProgramTypeCheckAdapter {
         records.push(this.classes.get(clazz)!);
       }
       result.set(sf, records);
+    }
+    for (const sf of this.filesWithoutTraits) {
+      result.set(sf, []);
     }
     return result;
   }
@@ -474,6 +489,29 @@ export class TraitCompiler implements ProgramTypeCheckAdapter {
         }
       }
     }
+  }
+
+  extendedTemplateCheck(sf: ts.SourceFile, extendedTemplateChecker: ExtendedTemplateChecker):
+      ts.Diagnostic[] {
+    const classes = this.fileToClasses.get(sf);
+    if (classes === undefined) {
+      return [];
+    }
+
+    const diagnostics: ts.Diagnostic[] = [];
+    for (const clazz of classes) {
+      if (!isNamedClassDeclaration(clazz)) {
+        continue;
+      }
+      const record = this.classes.get(clazz)!;
+      for (const trait of record.traits) {
+        if (trait.handler.extendedTemplateCheck === undefined) {
+          continue;
+        }
+        diagnostics.push(...trait.handler.extendedTemplateCheck(clazz, extendedTemplateChecker));
+      }
+    }
+    return diagnostics;
   }
 
   index(ctx: IndexingContext): void {

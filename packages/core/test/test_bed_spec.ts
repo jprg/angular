@@ -12,6 +12,7 @@ import {By} from '@angular/platform-browser';
 import {expect} from '@angular/platform-browser/testing/src/matchers';
 import {onlyInIvy} from '@angular/private/testing';
 import {TestBedRender3} from '../testing/src/r3_test_bed';
+import {TEARDOWN_TESTING_MODULE_ON_DESTROY_DEFAULT} from '../testing/src/test_bed_common';
 
 const NAME = new InjectionToken<string>('name');
 
@@ -248,6 +249,25 @@ describe('TestBed', () => {
     expect(hello.nativeElement).toHaveText('Hello World!');
   });
 
+  // https://github.com/angular/angular/issues/42734
+  it('should override a component which is declared in an NgModule which is imported as a `ModuleWithProviders`',
+     () => {
+       // This test verifies that an overridden component that is declared in an NgModule that has
+       // been imported as a `ModuleWithProviders` continues to have access to the declaration scope
+       // of the NgModule.
+       TestBed.resetTestingModule();
+
+       const moduleWithProviders:
+           ModuleWithProviders<HelloWorldModule> = {ngModule: HelloWorldModule};
+       TestBed.configureTestingModule({imports: [moduleWithProviders]});
+       TestBed.overrideComponent(
+           HelloWorld, {set: {template: 'Overridden <greeting-cmp></greeting-cmp>'}});
+
+       const hello = TestBed.createComponent(HelloWorld);
+       hello.detectChanges();
+       expect(hello.nativeElement).toHaveText('Overridden Hello World!');
+     });
+
   it('should run `APP_INITIALIZER` before accessing `LOCALE_ID` provider', () => {
     let locale: string = '';
     @NgModule({
@@ -305,6 +325,35 @@ describe('TestBed', () => {
 
     // verify that original `ngOnDestroy` was not called
     expect(SimpleService.ngOnDestroyCalls).toBe(0);
+  });
+
+  it('should be able to create a fixture if a test module is reset mid-compilation', async () => {
+    const token = new InjectionToken<number>('value');
+
+    @Component({template: 'hello {{_token}}'})
+    class TestComponent {
+      constructor(@Inject(token) public _token: number) {}
+    }
+
+    TestBed.resetTestingModule();  // Reset the state from `beforeEach`.
+
+    function compile(tokenValue: number) {
+      return TestBed
+          .configureTestingModule({
+            declarations: [TestComponent],
+            providers: [{provide: token, useValue: tokenValue}],
+            teardown: {destroyAfterEach: true}
+          })
+          .compileComponents();
+    }
+
+    const initialCompilation = compile(1);
+    TestBed.resetTestingModule();
+    await initialCompilation;
+    await compile(2);
+    const fixture = TestBed.createComponent(TestComponent);
+    fixture.detectChanges();
+    expect(fixture.nativeElement).toHaveText('hello 2');
   });
 
   describe('module overrides using TestBed.overrideModule', () => {
@@ -1296,20 +1345,20 @@ describe('TestBed module teardown', () => {
     TestBed.resetTestingModule();
   });
 
-  it('should not tear down the test module by default', () => {
-    expect(TestBed.shouldTearDownTestingModule()).toBe(false);
+  it('should tear down the test module by default', () => {
+    expect(TestBed.shouldTearDownTestingModule()).toBe(true);
   });
 
   it('should be able to configure the teardown behavior', () => {
-    TestBed.configureTestingModule({teardown: {destroyAfterEach: true}});
-    expect(TestBed.shouldTearDownTestingModule()).toBe(true);
+    TestBed.configureTestingModule({teardown: {destroyAfterEach: false}});
+    expect(TestBed.shouldTearDownTestingModule()).toBe(false);
   });
 
   it('should reset the teardown behavior back to the default when TestBed is reset', () => {
-    TestBed.configureTestingModule({teardown: {destroyAfterEach: true}});
-    expect(TestBed.shouldTearDownTestingModule()).toBe(true);
-    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({teardown: {destroyAfterEach: false}});
     expect(TestBed.shouldTearDownTestingModule()).toBe(false);
+    TestBed.resetTestingModule();
+    expect(TestBed.shouldTearDownTestingModule()).toBe(true);
   });
 
   it('should destroy test module providers when test module teardown is enabled', () => {
@@ -1479,5 +1528,29 @@ describe('TestBed module teardown', () => {
     expect(fixtureDocument.body.contains(fixture.nativeElement)).toBe(true);
     TestBed.resetTestingModule();
     expect(fixtureDocument.body.contains(fixture.nativeElement)).toBe(false);
+  });
+
+  it('should rethrow errors based on the default teardown behavior', () => {
+    expect(TestBed.shouldRethrowTeardownErrors()).toBe(TEARDOWN_TESTING_MODULE_ON_DESTROY_DEFAULT);
+  });
+
+  it('should rethrow errors if the option is omitted and test teardown is enabled', () => {
+    TestBed.configureTestingModule({teardown: {destroyAfterEach: true}});
+    expect(TestBed.shouldRethrowTeardownErrors()).toBe(true);
+  });
+
+  it('should not rethrow errors if the option is omitted and test teardown is disabled', () => {
+    TestBed.configureTestingModule({teardown: {destroyAfterEach: false}});
+    expect(TestBed.shouldRethrowTeardownErrors()).toBe(false);
+  });
+
+  it('should rethrow errors if the option is enabled, but teardown is disabled', () => {
+    TestBed.configureTestingModule({teardown: {destroyAfterEach: false, rethrowErrors: true}});
+    expect(TestBed.shouldRethrowTeardownErrors()).toBe(true);
+  });
+
+  it('should not rethrow errors if the option is disabled, but teardown is enabled', () => {
+    TestBed.configureTestingModule({teardown: {destroyAfterEach: true, rethrowErrors: false}});
+    expect(TestBed.shouldRethrowTeardownErrors()).toBe(false);
   });
 });

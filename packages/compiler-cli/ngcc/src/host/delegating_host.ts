@@ -6,7 +6,7 @@
  * found in the LICENSE file at https://angular.io/license
  */
 
-import * as ts from 'typescript';
+import ts from 'typescript';
 
 import {ClassDeclaration, ClassMember, CtorParameter, Declaration, DeclarationNode, Decorator, FunctionDefinition, Import, ReflectionHost} from '../../../src/ngtsc/reflection';
 import {isFromDtsFile} from '../../../src/ngtsc/util/src/typescript';
@@ -162,7 +162,7 @@ export class DelegatingReflectionHost implements NgccReflectionHost {
     return this.ngccHost.detectKnownDeclaration(decl);
   }
 
-  isStaticallyExported(clazz: ClassDeclaration): boolean {
-    return this.ngccHost.isStaticallyExported(clazz);
+  isStaticallyExported(decl: ts.Node): boolean {
+    return this.ngccHost.isStaticallyExported(decl);
   }
 }

@@ -6,8 +6,8 @@
  * found in the LICENSE file at https://angular.io/license
  */
 
-import {compileClassMetadata, CompileClassMetadataFn, compileDeclareClassMetadata, compileDeclareInjectableFromMetadata, compileInjectable, createR3ProviderExpression, Expression, FactoryTarget, LiteralExpr, R3ClassMetadata, R3CompiledExpression, R3DependencyMetadata, R3InjectableMetadata, R3ProviderExpression, Statement, WrappedNodeExpr} from '@angular/compiler';
-import * as ts from 'typescript';
+import {compileClassMetadata, CompileClassMetadataFn, compileDeclareClassMetadata, compileDeclareInjectableFromMetadata, compileInjectable, createMayBeForwardRefExpression, FactoryTarget, ForwardRefHandling, LiteralExpr, MaybeForwardRefExpression, R3ClassMetadata, R3CompiledExpression, R3DependencyMetadata, R3InjectableMetadata, WrappedNodeExpr} from '@angular/compiler';
+import ts from 'typescript';
 
 import {ErrorCode, FatalDiagnosticError} from '../../diagnostics';
 import {InjectableClassRegistry} from '../../metadata';
@@ -162,7 +162,7 @@ function extractInjectableMetadata(
       type,
       typeArgumentCount,
       internalType,
-      providedIn: createR3ProviderExpression(new LiteralExpr(null), false),
+      providedIn: createMayBeForwardRefExpression(new LiteralExpr(null), ForwardRefHandling.None),
     };
   } else if (decorator.args.length === 1) {
     const metaNode = decorator.args[0];
@@ -180,7 +180,7 @@ function extractInjectableMetadata(
 
     const providedIn = meta.has('providedIn') ?
         getProviderExpression(meta.get('providedIn')!, reflector) :
-        createR3ProviderExpression(new LiteralExpr(null), false);
+        createMayBeForwardRefExpression(new LiteralExpr(null), ForwardRefHandling.None);
 
     let deps: R3DependencyMetadata[]|undefined = undefined;
     if ((meta.has('useClass') || meta.has('useFactory')) && meta.has('deps')) {
@@ -220,10 +220,11 @@ function extractInjectableMetadata(
  * object to indicate whether the value needed unwrapping.
  */
 function getProviderExpression(
-    expression: ts.Expression, reflector: ReflectionHost): R3ProviderExpression {
+    expression: ts.Expression, reflector: ReflectionHost): MaybeForwardRefExpression {
   const forwardRefValue = tryUnwrapForwardRef(expression, reflector);
-  return createR3ProviderExpression(
-      new WrappedNodeExpr(forwardRefValue ?? expression), forwardRefValue !== null);
+  return createMayBeForwardRefExpression(
+      new WrappedNodeExpr(forwardRefValue ?? expression),
+      forwardRefValue !== null ? ForwardRefHandling.Unwrapped : ForwardRefHandling.None);
 }
 
 function extractInjectableCtorDeps(
@@ -280,10 +281,10 @@ function getDep(dep: ts.Expression, reflector: ReflectionHost): R3DependencyMeta
   };
 
   function maybeUpdateDecorator(
-      dec: ts.Identifier, reflector: ReflectionHost, token?: ts.Expression): void {
+      dec: ts.Identifier, reflector: ReflectionHost, token?: ts.Expression): boolean {
     const source = reflector.getImportOfIdentifier(dec);
     if (source === null || source.from !== '@angular/core') {
-      return;
+      return false;
     }
     switch (source.name) {
       case 'Inject':
@@ -300,16 +301,23 @@ function getDep(dep: ts.Expression, reflector: ReflectionHost): R3DependencyMeta
       case 'Self':
         meta.self = true;
         break;
+      default:
+        return false;
     }
+    return true;
   }
 
   if (ts.isArrayLiteralExpression(dep)) {
     dep.elements.forEach(el => {
+      let isDecorator = false;
       if (ts.isIdentifier(el)) {
-        maybeUpdateDecorator(el, reflector);
+        isDecorator = maybeUpdateDecorator(el, reflector);
       } else if (ts.isNewExpression(el) && ts.isIdentifier(el.expression)) {
         const token = el.arguments && el.arguments.length > 0 && el.arguments[0] || undefined;
-        maybeUpdateDecorator(el.expression, reflector, token);
+        isDecorator = maybeUpdateDecorator(el.expression, reflector, token);
+      }
+      if (!isDecorator) {
+        meta.token = new WrappedNodeExpr(el);
       }
     });
   }

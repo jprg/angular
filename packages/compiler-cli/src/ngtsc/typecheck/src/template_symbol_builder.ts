@@ -6,8 +6,8 @@
  * found in the LICENSE file at https://angular.io/license
  */
 
-import {AST, ASTWithSource, BindingPipe, MethodCall, PropertyRead, PropertyWrite, SafeMethodCall, SafePropertyRead, TmplAstBoundAttribute, TmplAstBoundEvent, TmplAstElement, TmplAstNode, TmplAstReference, TmplAstTemplate, TmplAstTextAttribute, TmplAstVariable} from '@angular/compiler';
-import * as ts from 'typescript';
+import {AST, ASTWithSource, BindingPipe, Call, ParseSourceSpan, PropertyRead, PropertyWrite, SafePropertyRead, TmplAstBoundAttribute, TmplAstBoundEvent, TmplAstElement, TmplAstNode, TmplAstReference, TmplAstTemplate, TmplAstTextAttribute, TmplAstVariable} from '@angular/compiler';
+import ts from 'typescript';
 
 import {AbsoluteFsPath} from '../../file_system';
 import {ClassDeclaration} from '../../reflection';
@@ -150,7 +150,24 @@ export class SymbolBuilder {
   private getDirectiveMeta(
       host: TmplAstTemplate|TmplAstElement,
       directiveDeclaration: ts.Declaration): TypeCheckableDirectiveMeta|null {
-    const directives = this.templateData.boundTarget.getDirectivesOfNode(host);
+    let directives = this.templateData.boundTarget.getDirectivesOfNode(host);
+
+    // `getDirectivesOfNode` will not return the directives intended for an element
+    // on a microsyntax template, for example `<div *ngFor="let user of users;" dir>`,
+    // the `dir` will be skipped, but it's needed in language service.
+    const firstChild = host.children[0];
+    if (firstChild instanceof TmplAstElement) {
+      const isMicrosyntaxTemplate = host instanceof TmplAstTemplate &&
+          sourceSpanEqual(firstChild.sourceSpan, host.sourceSpan);
+      if (isMicrosyntaxTemplate) {
+        const firstChildDirectives = this.templateData.boundTarget.getDirectivesOfNode(firstChild);
+        if (firstChildDirectives !== null && directives !== null) {
+          directives = directives.concat(firstChildDirectives);
+        } else {
+          directives = directives ?? firstChildDirectives;
+        }
+      }
+    }
     if (directives === null) {
       return null;
     }
@@ -476,11 +493,13 @@ export class SymbolBuilder {
       return this.getSymbol(expressionTarget);
     }
 
-    // The `name` part of a `PropertyWrite` and `MethodCall` does not have its own
+    let withSpan = expression.sourceSpan;
+
+    // The `name` part of a `PropertyWrite` and a non-safe `Call` does not have its own
     // AST so there is no way to retrieve a `Symbol` for just the `name` via a specific node.
-    const withSpan = (expression instanceof PropertyWrite || expression instanceof MethodCall) ?
-        expression.nameSpan :
-        expression.sourceSpan;
+    if (expression instanceof PropertyWrite) {
+      withSpan = expression.nameSpan;
+    }
 
     let node: ts.Node|null = null;
 
@@ -509,12 +528,8 @@ export class SymbolBuilder {
     // - If our expression is a pipe binding ("a | test:b:c"), we want the Symbol for the
     // `transform` on the pipe.
     // - Otherwise, we retrieve the symbol for the node itself with no special considerations
-    if ((expression instanceof SafePropertyRead || expression instanceof SafeMethodCall) &&
-        ts.isConditionalExpression(node)) {
-      const whenTrueSymbol =
-          (expression instanceof SafeMethodCall && ts.isCallExpression(node.whenTrue)) ?
-          this.getSymbolOfTsNode(node.whenTrue.expression) :
-          this.getSymbolOfTsNode(node.whenTrue);
+    if (expression instanceof SafePropertyRead && ts.isConditionalExpression(node)) {
+      const whenTrueSymbol = this.getSymbolOfTsNode(node.whenTrue);
       if (whenTrueSymbol === null) {
         return null;
       }
@@ -576,4 +591,8 @@ export class SymbolBuilder {
 /** Filter predicate function that matches any AST node. */
 function anyNodeFilter(n: ts.Node): n is ts.Node {
   return true;
+}
+
+function sourceSpanEqual(a: ParseSourceSpan, b: ParseSourceSpan) {
+  return a.start.offset === b.start.offset && a.end.offset === b.end.offset;
 }

@@ -5,7 +5,7 @@
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file at https://angular.io/license
  */
-import * as ts from 'typescript';
+import ts from 'typescript';
 
 import {absoluteFrom, AbsoluteFsPath, getFileSystem, NgtscCompilerHost} from '../../../src/ngtsc/file_system';
 import {TestFile} from '../../../src/ngtsc/file_system/testing';
@@ -26,6 +26,7 @@ export function makeTestEntryPoint(
     path: absoluteFrom(`/node_modules/${entryPointName}`),
     packageName,
     packagePath: absoluteFrom(`/node_modules/${packageName}`),
+    repositoryUrl: `https://github.com/${packageName}`,
     packageJson: {name: entryPointName},
     typings: absoluteFrom(`/node_modules/${entryPointName}/index.d.ts`),
     compiledByAngular: true,

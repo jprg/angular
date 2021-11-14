@@ -6,9 +6,8 @@
  * found in the LICENSE file at https://angular.io/license
  */
 
-import {compileClassMetadata, compileComponentFromMetadata, compileDeclareClassMetadata, compileDeclareComponentFromMetadata, ConstantPool, CssSelector, DeclarationListEmitMode, DeclareComponentTemplateInfo, DEFAULT_INTERPOLATION_CONFIG, DomElementSchemaRegistry, Expression, ExternalExpr, FactoryTarget, InterpolationConfig, LexerRange, makeBindingParser, ParsedTemplate, ParseSourceFile, parseTemplate, R3ClassMetadata, R3ComponentMetadata, R3TargetBinder, R3UsedDirectiveMetadata, SelectorMatcher, Statement, TmplAstNode, WrappedNodeExpr} from '@angular/compiler';
-import {ViewEncapsulation} from '@angular/compiler/src/core';
-import * as ts from 'typescript';
+import {compileClassMetadata, compileComponentFromMetadata, compileDeclareClassMetadata, compileDeclareComponentFromMetadata, ConstantPool, CssSelector, DeclarationListEmitMode, DeclareComponentTemplateInfo, DEFAULT_INTERPOLATION_CONFIG, DomElementSchemaRegistry, Expression, ExternalExpr, FactoryTarget, InterpolationConfig, LexerRange, makeBindingParser, ParsedTemplate, ParseSourceFile, parseTemplate, R3ClassMetadata, R3ComponentMetadata, R3TargetBinder, R3UsedDirectiveMetadata, SelectorMatcher, Statement, TmplAstNode, ViewEncapsulation, WrappedNodeExpr} from '@angular/compiler';
+import ts from 'typescript';
 
 import {Cycle, CycleAnalyzer, CycleHandlingStrategy} from '../../cycles';
 import {ErrorCode, FatalDiagnosticError, makeDiagnostic, makeRelatedInformation} from '../../diagnostics';
@@ -24,6 +23,7 @@ import {ClassDeclaration, DeclarationNode, Decorator, ReflectionHost, reflectObj
 import {ComponentScopeReader, LocalModuleScopeRegistry, TypeCheckScopeRegistry} from '../../scope';
 import {AnalysisOutput, CompileResult, DecoratorHandler, DetectResult, HandlerFlags, HandlerPrecedence, ResolveResult} from '../../transform';
 import {TemplateSourceMapping, TypeCheckContext} from '../../typecheck/api';
+import {ExtendedTemplateChecker} from '../../typecheck/extended/api';
 import {SubsetOfKeys} from '../../util/src/typescript';
 import {Xi18nContext} from '../../xi18n';
 
@@ -123,7 +123,8 @@ export class ComponentSymbol extends DirectiveSymbol {
   usedPipes: SemanticReference[] = [];
   isRemotelyScoped = false;
 
-  isEmitAffected(previousSymbol: SemanticSymbol, publicApiAffected: Set<SemanticSymbol>): boolean {
+  override isEmitAffected(previousSymbol: SemanticSymbol, publicApiAffected: Set<SemanticSymbol>):
+      boolean {
     if (!(previousSymbol instanceof ComponentSymbol)) {
       return true;
     }
@@ -146,7 +147,7 @@ export class ComponentSymbol extends DirectiveSymbol {
         !isArrayEqual(this.usedPipes, previousSymbol.usedPipes, isSymbolUnaffected);
   }
 
-  isTypeCheckBlockAffected(
+  override isTypeCheckBlockAffected(
       previousSymbol: SemanticSymbol, typeCheckApiAffected: Set<SemanticSymbol>): boolean {
     if (!(previousSymbol instanceof ComponentSymbol)) {
       return true;
@@ -503,7 +504,8 @@ export class ComponentDecoratorHandler implements
         },
         typeCheckMeta: extractDirectiveTypeCheckMeta(node, inputs, this.reflector),
         classMetadata: extractClassMetadata(
-            node, this.reflector, this.isCore, this.annotateForClosureCompiler),
+            node, this.reflector, this.isCore, this.annotateForClosureCompiler,
+            dec => this._transformDecoratorToInlineResources(dec, component, styles, template)),
         template,
         providersRequiringFactory,
         viewProvidersRequiringFactory,
@@ -609,6 +611,12 @@ export class ComponentDecoratorHandler implements
     ctx.addTemplate(
         new Reference(node), binder, meta.template.diagNodes, scope.pipes, scope.schemas,
         meta.template.sourceMapping, meta.template.file, meta.template.errors);
+  }
+
+  extendedTemplateCheck(
+      component: ts.ClassDeclaration,
+      extendedTemplateChecker: ExtendedTemplateChecker): ts.Diagnostic[] {
+    return extendedTemplateChecker.getDiagnosticsForComponent(component);
   }
 
   resolve(
@@ -917,6 +925,55 @@ export class ComponentDecoratorHandler implements
         compileDeclareClassMetadata(analysis.classMetadata).toStmt() :
         null;
     return compileResults(fac, def, classMetadata, 'ɵcmp');
+  }
+
+  /**
+   * Transforms the given decorator to inline external resources. i.e. if the decorator
+   * resolves to `@Component`, the `templateUrl` and `styleUrls` metadata fields will be
+   * transformed to their semantically-equivalent inline variants.
+   *
+   * This method is used for serializing decorators into the class metadata. The emitted
+   * class metadata should not refer to external resources as this would be inconsistent
+   * with the component definitions/declarations which already inline external resources.
+   *
+   * Additionally, the references to external resources would require libraries to ship
+   * external resources exclusively for the class metadata.
+   */
+  private _transformDecoratorToInlineResources(
+      dec: Decorator, component: Map<string, ts.Expression>, styles: string[],
+      template: ParsedTemplateWithSource): Decorator {
+    if (dec.name !== 'Component') {
+      return dec;
+    }
+
+    // If no external resources are referenced, preserve the original decorator
+    // for the best source map experience when the decorator is emitted in TS.
+    if (!component.has('templateUrl') && !component.has('styleUrls')) {
+      return dec;
+    }
+
+    const metadata = new Map(component);
+
+    // Set the `template` property if the `templateUrl` property is set.
+    if (metadata.has('templateUrl')) {
+      metadata.delete('templateUrl');
+      metadata.set('template', ts.createStringLiteral(template.content));
+    }
+
+    // Set the `styles` property if the `styleUrls` property is set.
+    if (metadata.has('styleUrls')) {
+      metadata.delete('styleUrls');
+      metadata.set('styles', ts.createArrayLiteral(styles.map(s => ts.createStringLiteral(s))));
+    }
+
+    // Convert the metadata to TypeScript AST object literal element nodes.
+    const newMetadataFields: ts.ObjectLiteralElementLike[] = [];
+    for (const [name, value] of metadata.entries()) {
+      newMetadataFields.push(ts.createPropertyAssignment(name, value));
+    }
+
+    // Return the original decorator with the overridden metadata argument.
+    return {...dec, args: [ts.createObjectLiteral(newMetadataFields)]};
   }
 
   private _resolveLiteral(decorator: Decorator): ts.ObjectLiteralExpression {

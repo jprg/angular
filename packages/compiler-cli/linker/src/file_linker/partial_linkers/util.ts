@@ -5,8 +5,7 @@
  * Use of this source code is governed by an MIT-style license that can be
  * found in the LICENSE file at https://angular.io/license
  */
-import {createR3ProviderExpression, R3DeclareDependencyMetadata, R3DependencyMetadata, R3ProviderExpression, R3Reference} from '@angular/compiler';
-import * as o from '@angular/compiler/src/output/output_ast';
+import {createMayBeForwardRefExpression, ForwardRefHandling, MaybeForwardRefExpression, outputAst as o, R3DeclareDependencyMetadata, R3DependencyMetadata, R3Reference} from '@angular/compiler';
 
 import {AstObject, AstValue} from '../../ast/ast_value';
 import {FatalLinkerError} from '../../fatal_linker_error';
@@ -67,9 +66,9 @@ export function getDependency<TExpression>(
  * If there is no forwardRef call expression then we just return the opaque type.
  */
 export function extractForwardRef<TExpression>(expr: AstValue<unknown, TExpression>):
-    R3ProviderExpression<o.WrappedNodeExpr<TExpression>> {
+    MaybeForwardRefExpression<o.WrappedNodeExpr<TExpression>> {
   if (!expr.isCallExpression()) {
-    return createR3ProviderExpression(expr.getOpaque(), /* isForwardRef */ false);
+    return createMayBeForwardRefExpression(expr.getOpaque(), ForwardRefHandling.None);
   }
 
   const callee = expr.getCallee();
@@ -91,5 +90,6 @@ export function extractForwardRef<TExpression>(expr: AstValue<unknown, TExpressi
         wrapperFn, 'Unsupported `forwardRef(fn)` call, expected its argument to be a function');
   }
 
-  return createR3ProviderExpression(wrapperFn.getFunctionReturnValue().getOpaque(), true);
+  return createMayBeForwardRefExpression(
+      wrapperFn.getFunctionReturnValue().getOpaque(), ForwardRefHandling.Unwrapped);
 }

@@ -12,13 +12,15 @@ import {Driver, DriverReadyState} from '../src/driver';
 import {AssetGroupConfig, DataGroupConfig, Manifest} from '../src/manifest';
 import {sha1} from '../src/sha1';
 import {clearAllCaches, MockCache} from '../testing/cache';
+import {MockWindowClient} from '../testing/clients';
 import {MockRequest, MockResponse} from '../testing/fetch';
 import {MockFileSystem, MockFileSystemBuilder, MockServerState, MockServerStateBuilder, tmpHashTableForFs} from '../testing/mock';
-import {MockClient, SwTestHarness, SwTestHarnessBuilder, WindowClientImpl} from '../testing/scope';
+import {SwTestHarness, SwTestHarnessBuilder} from '../testing/scope';
+import {envIsSupported} from '../testing/utils';
 
 (function() {
 // Skip environments that don't support the minimum APIs needed to run the SW tests.
-if (!SwTestHarness.envIsSupported()) {
+if (!envIsSupported()) {
   return;
 }
 
@@ -476,11 +478,17 @@ describe('Driver', () => {
     serverUpdate.assertSawRequestFor('/redirected.txt');
     serverUpdate.assertNoOtherRequests();
 
-    expect(client.messages).toEqual([{
-      type: 'UPDATE_AVAILABLE',
-      current: {hash: manifestHash, appData: {version: 'original'}},
-      available: {hash: manifestUpdateHash, appData: {version: 'update'}},
-    }]);
+    expect(client.messages).toEqual([
+      {
+        type: 'VERSION_DETECTED',
+        version: {hash: manifestUpdateHash, appData: {version: 'update'}},
+      },
+      {
+        type: 'VERSION_READY',
+        currentVersion: {hash: manifestHash, appData: {version: 'original'}},
+        latestVersion: {hash: manifestUpdateHash, appData: {version: 'update'}},
+      },
+    ]);
 
     // Default client is still on the old version of the app.
     expect(await makeRequest(scope, '/foo.txt')).toEqual('this is foo');
@@ -521,10 +529,11 @@ describe('Driver', () => {
     await driver.updateClient(client as any as Client);
 
     expect(client.messages).toEqual([
+      {type: 'VERSION_DETECTED', version: {hash: manifestUpdateHash, appData: {version: 'update'}}},
       {
-        type: 'UPDATE_AVAILABLE',
-        current: {hash: manifestHash, appData: {version: 'original'}},
-        available: {hash: manifestUpdateHash, appData: {version: 'update'}},
+        type: 'VERSION_READY',
+        currentVersion: {hash: manifestHash, appData: {version: 'original'}},
+        latestVersion: {hash: manifestUpdateHash, appData: {version: 'update'}},
       },
       {
         type: 'UPDATE_ACTIVATED',
@@ -634,9 +643,13 @@ describe('Driver', () => {
 
     expect(client.messages).toEqual([
       {
-        type: 'UPDATE_AVAILABLE',
-        current: {hash: manifestHash, appData: {version: 'original'}},
-        available: {hash: manifestUpdateHash, appData: {version: 'update'}},
+        type: 'VERSION_DETECTED',
+        version: {hash: manifestUpdateHash, appData: {version: 'update'}},
+      },
+      {
+        type: 'VERSION_READY',
+        currentVersion: {hash: manifestHash, appData: {version: 'original'}},
+        latestVersion: {hash: manifestUpdateHash, appData: {version: 'update'}},
       },
       {
         type: 'UPDATE_ACTIVATED',
@@ -764,7 +777,7 @@ describe('Driver', () => {
       await driver.initialized;
       await scope.handleClick(
           {title: 'This is a test with action', body: 'Test body with action'}, 'button');
-      const message: any = scope.clients.getMock('default')!.messages[0];
+      const message = scope.clients.getMock('default')!.messages[0];
 
       expect(message.type).toEqual('NOTIFICATION_CLICK');
       expect(message.data.action).toEqual('button');
@@ -779,10 +792,10 @@ describe('Driver', () => {
         title: 'This is a test without action',
         body: 'Test body without action',
       });
-      const message: any = scope.clients.getMock('default')!.messages[0];
+      const message = scope.clients.getMock('default')!.messages[0];
 
       expect(message.type).toEqual('NOTIFICATION_CLICK');
-      expect(message.data.action).toBeUndefined();
+      expect(message.data.action).toBe('');
       expect(message.data.notification.title).toEqual('This is a test without action');
       expect(message.data.notification.body).toEqual('Test body without action');
     });
@@ -835,11 +848,13 @@ describe('Driver', () => {
       describe('`focusLastFocusedOrOpen` operation', () => {
         it('focuses last client keeping previous url', async () => {
           expect(await makeRequest(scope, '/foo.txt')).toEqual('this is foo');
-          const mockClient = new WindowClientImpl('fooBar');
-          spyOn(scope.clients, 'matchAll').and.returnValue(Promise.resolve([mockClient]));
-          spyOn(mockClient, 'focus');
-          spyOn(mockClient, 'navigate');
+
+          scope.clients.add('fooBar', 'http://localhost/unique', 'window');
+          const mockClient = scope.clients.getMock('fooBar') as MockWindowClient;
           const url = 'foo';
+
+          expect(mockClient.url).toBe('http://localhost/unique');
+          expect(mockClient.focused).toBeFalse();
 
           await driver.initialized;
           await scope.handleClick(
@@ -853,9 +868,8 @@ describe('Driver', () => {
                 },
               },
               'foo');
-          expect(mockClient.navigate).not.toHaveBeenCalled();
-          expect(mockClient.url).toEqual('http://localhost/unique');
-          expect(mockClient.focus).toHaveBeenCalled();
+          expect(mockClient.url).toBe('http://localhost/unique');
+          expect(mockClient.focused).toBeTrue();
         });
 
         it('falls back to openWindow at url when no last client to focus', async () => {
@@ -903,12 +917,14 @@ describe('Driver', () => {
 
       describe('`navigateLastFocusedOrOpen` operation', () => {
         it('navigates last client to `url`', async () => {
-          expect(await makeRequest(scope, '/foo.txt')).toEqual('this is foo');
-          const mockClient = new WindowClientImpl('fooBar');
-          spyOn(scope.clients, 'matchAll').and.returnValue(Promise.resolve([mockClient]));
-          spyOn(mockClient, 'focus');
-          spyOn(mockClient, 'navigate').and.returnValue(Promise.resolve(mockClient));
+          expect(await makeRequest(scope, '/foo.txt')).toBe('this is foo');
+
+          scope.clients.add('fooBar', 'http://localhost/unique', 'window');
+          const mockClient = scope.clients.getMock('fooBar') as MockWindowClient;
           const url = 'foo';
+
+          expect(mockClient.url).toBe('http://localhost/unique');
+          expect(mockClient.focused).toBeFalse();
 
           await driver.initialized;
           await scope.handleClick(
@@ -922,16 +938,18 @@ describe('Driver', () => {
                 },
               },
               'foo');
-          expect(mockClient.navigate).toHaveBeenCalledWith(`${scope.registration.scope}${url}`);
-          expect(mockClient.focus).toHaveBeenCalled();
+          expect(mockClient.url).toBe(`${scope.registration.scope}${url}`);
+          expect(mockClient.focused).toBeTrue();
         });
 
-        it('navigates last client to `/` if no `url', async () => {
-          expect(await makeRequest(scope, '/foo.txt')).toEqual('this is foo');
-          const mockClient = new WindowClientImpl('fooBar');
-          spyOn(scope.clients, 'matchAll').and.returnValue(Promise.resolve([mockClient]));
-          spyOn(mockClient, 'focus');
-          spyOn(mockClient, 'navigate').and.returnValue(Promise.resolve(mockClient));
+        it('navigates last client to `/` if no `url`', async () => {
+          expect(await makeRequest(scope, '/foo.txt')).toBe('this is foo');
+
+          scope.clients.add('fooBar', 'http://localhost/unique', 'window');
+          const mockClient = scope.clients.getMock('fooBar') as MockWindowClient;
+
+          expect(mockClient.url).toBe('http://localhost/unique');
+          expect(mockClient.focused).toBeFalse();
 
           await driver.initialized;
           await scope.handleClick(
@@ -945,8 +963,8 @@ describe('Driver', () => {
                 },
               },
               'foo');
-          expect(mockClient.navigate).toHaveBeenCalledWith(`${scope.registration.scope}`);
-          expect(mockClient.focus).toHaveBeenCalled();
+          expect(mockClient.url).toBe(scope.registration.scope);
+          expect(mockClient.focused).toBeTrue();
         });
 
         it('falls back to openWindow at url when no last client to focus', async () => {
@@ -1045,6 +1063,21 @@ describe('Driver', () => {
                 {title: 'This is a test without action', body: 'Test body without action'});
             expect(scope.clients.openWindow).not.toHaveBeenCalled();
           });
+        });
+      });
+
+      describe('no onActionClick field', () => {
+        it('has no client interaction', async () => {
+          expect(await makeRequest(scope, '/foo.txt')).toEqual('this is foo');
+          spyOn(scope.clients, 'openWindow');
+
+          await driver.initialized;
+          await scope.handleClick(
+              {title: 'This is a test without action', body: 'Test body without action', data: {}});
+          await scope.handleClick(
+              {title: 'This is a test with an action', body: 'Test body with an action', data: {}},
+              'someAction');
+          expect(scope.clients.openWindow).not.toHaveBeenCalled();
         });
       });
 
@@ -2023,18 +2056,75 @@ describe('Driver', () => {
       // `client1`).
       expect(await makeRequest(scope, '/bar.txt', 'client1')).toBe('this is bar (broken)');
       expect(driver.state).toBe(DriverReadyState.EXISTING_CLIENTS_ONLY);
-      brokenLazyServer.sawRequestFor('/bar.txt');
+      brokenLazyServer.assertSawRequestFor('/bar.txt');
       brokenLazyServer.clearRequests();
 
-      // `client1` should not be served from the network.
+      // `client1` should still be served from the latest (broken) version.
       expect(await makeRequest(scope, '/foo.txt', 'client1')).toBe('this is foo (broken)');
-      brokenLazyServer.sawRequestFor('/foo.txt');
+      brokenLazyServer.assertNoOtherRequests();
 
       // `client2` should still be served from the old version (since it never updated).
       expect(await makeRequest(scope, '/foo.txt', 'client2')).toBe('this is foo');
       server.assertNoOtherRequests();
       brokenLazyServer.assertNoOtherRequests();
+
+      // New clients should be served from the network.
+      expect(await makeRequest(scope, '/foo.txt', 'client3')).toBe('this is foo (broken)');
+      brokenLazyServer.assertSawRequestFor('/foo.txt');
     });
+
+    it('enters does not enter degraded mode when something goes wrong with an older version',
+       async () => {
+         await driver.initialized;
+
+         // Three clients on initial version.
+         expect(await makeRequest(scope, '/foo.txt', 'client1')).toBe('this is foo');
+         expect(await makeRequest(scope, '/foo.txt', 'client2')).toBe('this is foo');
+         expect(await makeRequest(scope, '/foo.txt', 'client3')).toBe('this is foo');
+
+         // Install a broken version (`bar.txt` has invalid hash).
+         scope.updateServerState(brokenLazyServer);
+         await driver.checkForUpdate();
+
+         // Update `client1` and `client2` but not `client3`.
+         await makeNavigationRequest(scope, '/', 'client1');
+         await makeNavigationRequest(scope, '/', 'client2');
+         server.clearRequests();
+         brokenLazyServer.clearRequests();
+
+         expect(await makeRequest(scope, '/foo.txt', 'client1')).toBe('this is foo (broken)');
+         expect(await makeRequest(scope, '/foo.txt', 'client2')).toBe('this is foo (broken)');
+         expect(await makeRequest(scope, '/foo.txt', 'client3')).toBe('this is foo');
+         server.assertNoOtherRequests();
+         brokenLazyServer.assertNoOtherRequests();
+
+         // Install a newer, non-broken version.
+         scope.updateServerState(serverUpdate);
+         await driver.checkForUpdate();
+
+         // Update `client1` bot not `client2` or `client3`.
+         await makeNavigationRequest(scope, '/', 'client1');
+         expect(await makeRequest(scope, '/foo.txt', 'client1')).toBe('this is foo v2');
+
+         // Trying to fetch `bar.txt` (which has an invalid hash on the broken version) from
+         // `client2` should invalidate that particular version (which is not the latest one).
+         // (NOTE: Since the file is not cached locally, it is fetched from the server.)
+         expect(await makeRequest(scope, '/bar.txt', 'client2')).toBe('this is bar');
+         expect(driver.state).toBe(DriverReadyState.NORMAL);
+         serverUpdate.clearRequests();
+
+         // Existing clients should still be served from their assigned versions.
+         expect(await makeRequest(scope, '/foo.txt', 'client1')).toBe('this is foo v2');
+         expect(await makeRequest(scope, '/foo.txt', 'client2')).toBe('this is foo (broken)');
+         expect(await makeRequest(scope, '/foo.txt', 'client3')).toBe('this is foo');
+         server.assertNoOtherRequests();
+         brokenLazyServer.assertNoOtherRequests();
+         serverUpdate.assertNoOtherRequests();
+
+         // New clients should be served from the latest version.
+         expect(await makeRequest(scope, '/foo.txt', 'client4')).toBe('this is foo v2');
+         serverUpdate.assertNoOtherRequests();
+       });
 
     it('recovers from degraded `EXISTING_CLIENTS_ONLY` mode as soon as there is a valid update',
        async () => {
@@ -2294,6 +2384,62 @@ describe('Driver', () => {
         // This should put the SW in an unrecoverable state and notify clients.
         expect(await makeRequest(scope, '/foo.hash.js')).toBeNull();
         updatedServer.assertSawRequestFor('/foo.hash.js');
+
+        // This should also enter the `SW` into degraded mode, because the broken version was the
+        // latest one.
+        expect(driver.state).toEqual(DriverReadyState.EXISTING_CLIENTS_ONLY);
+      });
+
+      it('is handled correctly even if some of the clients no longer exist', async () => {
+        const originalFiles = new MockFileSystemBuilder()
+                                  .addFile('/index.html', '<script src="foo.hash.js"></script>')
+                                  .addFile('/foo.hash.js', 'console.log("FOO");')
+                                  .build();
+
+        const updatedFiles = new MockFileSystemBuilder()
+                                 .addFile('/index.html', '<script src="bar.hash.js"></script>')
+                                 .addFile('/bar.hash.js', 'console.log("BAR");')
+                                 .build();
+
+        const {serverState: originalServer, manifest} = generateMockServerState(originalFiles);
+        const {serverState: updatedServer} = generateMockServerState(updatedFiles);
+
+        // Create initial server state and initialize the SW.
+        scope = new SwTestHarnessBuilder().withServerState(originalServer).build();
+        driver = new Driver(scope, scope, new CacheDatabase(scope));
+
+        expect(await makeRequest(scope, '/foo.hash.js', 'client-1')).toBe('console.log("FOO");');
+        expect(await makeRequest(scope, '/foo.hash.js', 'client-2')).toBe('console.log("FOO");');
+        await driver.initialized;
+
+        // Update the server state to emulate deploying a new version (where `foo.hash.js` does not
+        // exist any more). Keep the cache though.
+        scope = new SwTestHarnessBuilder()
+                    .withCacheState(scope.caches.original.dehydrate())
+                    .withServerState(updatedServer)
+                    .build();
+        driver = new Driver(scope, scope, new CacheDatabase(scope));
+
+        // The SW is still able to serve `foo.hash.js` from the cache.
+        expect(await makeRequest(scope, '/foo.hash.js', 'client-1')).toBe('console.log("FOO");');
+        expect(await makeRequest(scope, '/foo.hash.js', 'client-2')).toBe('console.log("FOO");');
+
+        // Remove `foo.hash.js` from the cache to emulate the browser evicting files from the cache.
+        await removeAssetFromCache(scope, manifest, '/foo.hash.js');
+
+        // Remove one of the clients to emulate closing a browser tab.
+        scope.clients.remove('client-1');
+
+        // Retrieve the remaining client to ensure it is notified.
+        const mockClient2 = scope.clients.getMock('client-2')!;
+        expect(mockClient2.messages).toEqual([]);
+
+        // Try to retrieve `foo.hash.js`, which is neither in the cache nor on the server.
+        // This should put the SW in an unrecoverable state and notify clients (even if some of the
+        // previously known clients no longer exist).
+        expect(await makeRequest(scope, '/foo.hash.js', 'client-2')).toBeNull();
+        expect(mockClient2.messages).toEqual([jasmine.objectContaining(
+            {type: 'UNRECOVERABLE_STATE'})]);
 
         // This should also enter the `SW` into degraded mode, because the broken version was the
         // latest one.

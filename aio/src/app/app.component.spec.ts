@@ -21,6 +21,7 @@ import { ScrollService } from 'app/shared/scroll.service';
 import { SearchResultsComponent } from 'app/shared/search-results/search-results.component';
 import { SelectComponent } from 'app/shared/select/select.component';
 import { TocItem, TocService } from 'app/shared/toc.service';
+import { SwUpdatesService } from 'app/sw-updates/sw-updates.service';
 import { of, Subject, timer } from 'rxjs';
 import { first, mapTo } from 'rxjs/operators';
 import { MockLocationService } from 'testing/location.service';
@@ -75,15 +76,17 @@ describe('AppComponent', () => {
 
 
   describe('with proper DocViewer', () => {
+    const originalReducedMotion = AppComponent.reducedMotion;
 
     beforeEach(async () => {
-      DocViewerComponent.animationsEnabled = false;
+      // Set `reducedMotion` to `true` to disable animations (such as view transitions) for the tests.
+      AppComponent.reducedMotion = true;
 
       createTestingModule('a/b');
       await initializeTest();
     });
 
-    afterEach(() => DocViewerComponent.animationsEnabled = true);
+    afterEach(() => AppComponent.reducedMotion = originalReducedMotion);
 
     it('should create', () => {
       expect(component).toBeDefined();
@@ -431,8 +434,14 @@ describe('AppComponent', () => {
         await setupSelectorForTesting();
         locationService.urlSubject.next('docs#section-1');
         const versionWithoutSlashIndex = component.docVersions.length;
-        const versionWithoutSlashUrl = component.docVersions[versionWithoutSlashIndex] = { url: 'https://next.angular.io', title: 'foo' };
-        selectElement.triggerEventHandler('change', { option: versionWithoutSlashUrl, index: versionWithoutSlashIndex });
+        const versionWithoutSlashUrl = (component.docVersions[versionWithoutSlashIndex] = {
+          url: 'https://next.angular.io',
+          title: 'foo',
+        });
+        selectElement.triggerEventHandler('change', {
+          option: versionWithoutSlashUrl,
+          index: versionWithoutSlashIndex,
+        });
         expect(locationService.go).toHaveBeenCalledWith('https://next.angular.io/docs#section-1');
       });
     });
@@ -589,7 +598,10 @@ describe('AppComponent', () => {
     });
 
     describe('restrainScrolling()', () => {
-      const preventedScrolling = (currentTarget: object, deltaY: number) => {
+      const preventedScrolling = (
+        currentTarget: {scrollTop: number, scrollHeight?: number, clientHeight?: number},
+        deltaY: number
+      ) => {
         const evt = {
           deltaY,
           currentTarget,
@@ -780,15 +792,20 @@ describe('AppComponent', () => {
 
       describe('keyup handling', () => {
         it('should grab focus when the / key is pressed', () => {
-          const searchBox: SearchBoxComponent = fixture.debugElement.query(By.directive(SearchBoxComponent)).componentInstance;
+          const searchBox: SearchBoxComponent = fixture.debugElement.query(
+            By.directive(SearchBoxComponent)
+          ).componentInstance;
           spyOn(searchBox, 'focus');
           window.document.dispatchEvent(new KeyboardEvent('keyup', { key: '/' }));
           fixture.detectChanges();
           expect(searchBox.focus).toHaveBeenCalled();
         });
 
+        // eslint-disable-next-line max-len
         it('should set focus back to the search box when the search results are displayed and the escape key is pressed', () => {
-          const searchBox: SearchBoxComponent = fixture.debugElement.query(By.directive(SearchBoxComponent)).componentInstance;
+          const searchBox: SearchBoxComponent = fixture.debugElement.query(
+            By.directive(SearchBoxComponent)
+          ).componentInstance;
           spyOn(searchBox, 'focus');
           component.showSearchResults = true;
           window.document.dispatchEvent(new KeyboardEvent('keyup', { key: 'Escape' }));
@@ -809,7 +826,15 @@ describe('AppComponent', () => {
           const searchService = TestBed.inject(SearchService) as Partial<SearchService> as MockSearchService;
 
           const results = [
-            { path: 'news', title: 'News', type: 'marketing', keywords: '', titleWords: '', deprecated: false, topics: '' }
+            {
+              path: 'news',
+              title: 'News',
+              type: 'marketing',
+              keywords: '',
+              titleWords: '',
+              deprecated: false,
+              topics: '',
+            },
           ];
 
           searchService.searchResults.next({ query: 'something', results });
@@ -829,6 +854,19 @@ describe('AppComponent', () => {
           expect(doSearchSpy).toHaveBeenCalledWith('some query');
         });
       });
+    });
+
+    describe('SW updates', () => {
+      it('should be enabled when the component is initialized',
+        inject([SwUpdatesService], (swUpdates: TestSwUpdatesService) => {
+          swUpdates.disable();
+          expect(swUpdates.isEnabled).toBeFalse();
+
+          const fixture2 = TestBed.createComponent(AppComponent);
+          fixture2.detectChanges();
+          expect(swUpdates.isEnabled).toBeTrue();
+        })
+      );
     });
 
     describe('archive redirection', () => {
@@ -890,70 +928,79 @@ describe('AppComponent', () => {
     });
 
     describe('initial rendering', () => {
-      beforeEach(jasmine.clock().install);
-      afterEach(jasmine.clock().uninstall);
+      const originialReducedMotion = AppComponent.reducedMotion;
+
+      beforeEach(() => {
+        jasmine.clock().install();
+        AppComponent.reducedMotion = false;
+      });
+
+      afterEach(() => {
+        jasmine.clock().uninstall();
+        AppComponent.reducedMotion = originialReducedMotion;
+      });
 
       it('should initially disable Angular animations until a document is rendered', () => {
         initializeTest(false);
         jasmine.clock().tick(1);  // triggers the HTTP response for the document
 
-        expect(component.isStarting).toBe(true);
+        expect(component.disableAnimations).toBe(true);
         expect(fixture.debugElement.properties['@.disabled']).toBe(true);
 
         triggerDocViewerEvent('docInserted');
         jasmine.clock().tick(startedDelay);
         fixture.detectChanges();
-        expect(component.isStarting).toBe(true);
+        expect(component.disableAnimations).toBe(true);
         expect(fixture.debugElement.properties['@.disabled']).toBe(true);
 
         triggerDocViewerEvent('docRendered');
         jasmine.clock().tick(startedDelay);
         fixture.detectChanges();
-        expect(component.isStarting).toBe(false);
+        expect(component.disableAnimations).toBe(false);
         expect(fixture.debugElement.properties['@.disabled']).toBe(false);
       });
 
-      it('should initially add the starting class until a document is rendered', () => {
+      it('should initially add the `no-animations` class until a document is rendered', () => {
         initializeTest(false);
         jasmine.clock().tick(1);  // triggers the HTTP response for the document
         const sidenavContainer = fixture.debugElement.query(By.css('mat-sidenav-container')).nativeElement;
 
-        expect(component.isStarting).toBe(true);
-        expect(hamburger.classList.contains('starting')).toBe(true);
-        expect(sidenavContainer.classList.contains('starting')).toBe(true);
+        expect(component.disableAnimations).toBe(true);
+        expect(hamburger.classList.contains('no-animations')).toBe(true);
+        expect(sidenavContainer.classList.contains('no-animations')).toBe(true);
 
         triggerDocViewerEvent('docInserted');
         jasmine.clock().tick(startedDelay);
         fixture.detectChanges();
-        expect(component.isStarting).toBe(true);
-        expect(hamburger.classList.contains('starting')).toBe(true);
-        expect(sidenavContainer.classList.contains('starting')).toBe(true);
+        expect(component.disableAnimations).toBe(true);
+        expect(hamburger.classList.contains('no-animations')).toBe(true);
+        expect(sidenavContainer.classList.contains('no-animations')).toBe(true);
 
         triggerDocViewerEvent('docRendered');
         jasmine.clock().tick(startedDelay);
         fixture.detectChanges();
-        expect(component.isStarting).toBe(false);
-        expect(hamburger.classList.contains('starting')).toBe(false);
-        expect(sidenavContainer.classList.contains('starting')).toBe(false);
+        expect(component.disableAnimations).toBe(false);
+        expect(hamburger.classList.contains('no-animations')).toBe(false);
+        expect(sidenavContainer.classList.contains('no-animations')).toBe(false);
       });
 
       it('should initially disable animations on the DocViewer for the first rendering', () => {
         initializeTest(false);
         jasmine.clock().tick(1);  // triggers the HTTP response for the document
 
-        expect(component.isStarting).toBe(true);
+        expect(component.disableAnimations).toBe(true);
         expect(docViewer.classList.contains('no-animations')).toBe(true);
 
         triggerDocViewerEvent('docInserted');
         jasmine.clock().tick(startedDelay);
         fixture.detectChanges();
-        expect(component.isStarting).toBe(true);
+        expect(component.disableAnimations).toBe(true);
         expect(docViewer.classList.contains('no-animations')).toBe(true);
 
         triggerDocViewerEvent('docRendered');
         jasmine.clock().tick(startedDelay);
         fixture.detectChanges();
-        expect(component.isStarting).toBe(false);
+        expect(component.disableAnimations).toBe(false);
         expect(docViewer.classList.contains('no-animations')).toBe(false);
       });
     });
@@ -967,7 +1014,7 @@ describe('AppComponent', () => {
         jasmine.clock().tick(1);  // triggers the HTTP response for the document
         const toolbar = fixture.debugElement.query(By.css('.app-toolbar'));
 
-        // Initially, `isTransitoning` is true.
+        // Initially, `isTransitioning` is true.
         expect(component.isTransitioning).toBe(true);
         expect(toolbar.classes.transitioning).toBe(true);
 
@@ -976,7 +1023,7 @@ describe('AppComponent', () => {
         expect(component.isTransitioning).toBe(false);
         expect(toolbar.classes.transitioning).toBeFalsy();
 
-        // While a document is being rendered, `isTransitoning` is set to true.
+        // While a document is being rendered, `isTransitioning` is set to true.
         triggerDocViewerEvent('docReady');
         fixture.detectChanges();
         expect(component.isTransitioning).toBe(true);
@@ -1011,6 +1058,44 @@ describe('AppComponent', () => {
         triggerDocViewerEvent('docInserted');
         jasmine.clock().tick(0);
         expect(updateSideNavSpy).toHaveBeenCalledTimes(1);
+      });
+    });
+
+    describe('disableAnimations', () => {
+      const originialReducedMotion = AppComponent.reducedMotion;
+
+      beforeEach(() => {
+        jasmine.clock().install();
+        AppComponent.reducedMotion = false;
+      });
+
+      afterEach(() => {
+        jasmine.clock().uninstall();
+        AppComponent.reducedMotion = originialReducedMotion;
+      });
+
+      it('should initially be true', () => {
+        initializeTest(false);
+        expect(component.disableAnimations).toBe(true);
+      });
+
+      it('should become false after initial render', () => {
+        initializeTest(false);
+
+        triggerDocViewerEvent('docRendered');
+        jasmine.clock().tick(startedDelay);
+
+        expect(component.disableAnimations).toBe(false);
+      });
+
+      it('should remain true (even after initial render) if user prefers reduced motion', () => {
+        AppComponent.reducedMotion = true;
+        initializeTest(false);
+
+        triggerDocViewerEvent('docRendered');
+        jasmine.clock().tick(startedDelay);
+
+        expect(component.disableAnimations).toBe(true);
       });
     });
 
@@ -1269,6 +1354,7 @@ function createTestingModule(initialUrl: string, mode: string = 'stable') {
       { provide: LocationService, useFactory: () => mockLocationService },
       { provide: Logger, useClass: MockLogger },
       { provide: SearchService, useClass: MockSearchService },
+      { provide: SwUpdatesService, useClass: TestSwUpdatesService },
       { provide: Deployment, useFactory: () => {
         const deployment = new Deployment(mockLocationService as any);
         deployment.mode = mode;
@@ -1311,7 +1397,6 @@ class TestHttpClient {
     { title: 'v2', url: 'https://v2.angular.io' }
   ];
 
-  // tslint:disable:quotemark
   navJson = {
     TopBar: [
       {
@@ -1368,4 +1453,13 @@ class TestHttpClient {
     // Preserve async nature of `HttpClient`.
     return timer(1).pipe(mapTo(data));
   }
+}
+
+type PublicPart<T> = {[K in keyof T]: T[K]};
+class TestSwUpdatesService implements PublicPart<SwUpdatesService> {
+  isEnabled = false;
+
+  disable() { this.isEnabled = false; }
+  enable() { this.isEnabled = true; }
+  ngOnDestroy() { this.disable(); }
 }

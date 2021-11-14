@@ -22,6 +22,15 @@ ts_config(
     deps = [":tsconfig-build.json"],
 )
 
+ts_config(
+    name = "tsec_config",
+    src = "tsconfig-tsec-base.json",
+    deps = [
+        ":tsconfig-build.json",
+        ":tsec-exemption.json",
+    ],
+)
+
 exports_files([
     "license-banner.txt",
     "README.md",

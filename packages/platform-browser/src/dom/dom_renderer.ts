@@ -140,7 +140,7 @@ class DefaultDomRenderer2 implements Renderer2 {
 
   destroy(): void {}
 
-  destroyNode: null;
+  destroyNode = null;
 
   createElement(name: string, namespace?: string): any {
     if (namespace) {
@@ -280,8 +280,10 @@ class DefaultDomRenderer2 implements Renderer2 {
 const AT_CHARCODE = (() => '@'.charCodeAt(0))();
 function checkNoSyntheticProp(name: string, nameKind: string) {
   if (name.charCodeAt(0) === AT_CHARCODE) {
-    throw new Error(`Found the synthetic ${nameKind} ${
-        name}. Please include either "BrowserAnimationsModule" or "NoopAnimationsModule" in your application.`);
+    throw new Error(`Unexpected synthetic ${nameKind} ${name} found. Please make sure that:
+  - Either \`BrowserAnimationsModule\` or \`NoopAnimationsModule\` are imported in your application.
+  - There is corresponding configuration for the animation named \`${
+        name}\` defined in the \`animations\` field of the \`@Component\` decorator (see https://angular.io/api/core/Component#animations).`);
   }
 }
 
@@ -304,7 +306,7 @@ class EmulatedEncapsulationDomRenderer2 extends DefaultDomRenderer2 {
     super.setAttribute(element, this.hostAttr, '');
   }
 
-  createElement(parent: any, name: string): Element {
+  override createElement(parent: any, name: string): Element {
     const el = super.createElement(parent, name);
     super.setAttribute(el, this.contentAttr, '');
     return el;
@@ -332,20 +334,20 @@ class ShadowDomRenderer extends DefaultDomRenderer2 {
     return node === this.hostEl ? this.shadowRoot : node;
   }
 
-  destroy() {
+  override destroy() {
     this.sharedStylesHost.removeHost(this.shadowRoot);
   }
 
-  appendChild(parent: any, newChild: any): void {
+  override appendChild(parent: any, newChild: any): void {
     return super.appendChild(this.nodeOrShadowRoot(parent), newChild);
   }
-  insertBefore(parent: any, newChild: any, refChild: any): void {
+  override insertBefore(parent: any, newChild: any, refChild: any): void {
     return super.insertBefore(this.nodeOrShadowRoot(parent), newChild, refChild);
   }
-  removeChild(parent: any, oldChild: any): void {
+  override removeChild(parent: any, oldChild: any): void {
     return super.removeChild(this.nodeOrShadowRoot(parent), oldChild);
   }
-  parentNode(node: any): any {
+  override parentNode(node: any): any {
     return this.nodeOrShadowRoot(super.parentNode(this.nodeOrShadowRoot(node)));
   }
 }

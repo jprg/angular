@@ -389,7 +389,9 @@ describe('LocationService', () => {
     it('should convert the params to a query string', () => {
       const params = { foo: 'bar', moo: 'car' };
       service.setSearch('Some label', params);
-      expect(platformLocation.replaceState).toHaveBeenCalledWith(jasmine.any(Object), 'Some label', jasmine.any(String));
+      expect(platformLocation.replaceState).toHaveBeenCalledWith(
+        jasmine.any(Object),'Some label', jasmine.any(String)
+      );
       const [path, query] = platformLocation.replaceState.calls.mostRecent().args[2].split('?');
       expect(path).toEqual('a/b/c');
       expect(query).toContain('foo=bar');
@@ -431,6 +433,14 @@ describe('LocationService', () => {
         anchor.href = '/some/local/url';
         const result = service.handleAnchorClick(anchor);
         expect(service.go).toHaveBeenCalledWith('/some/local/url');
+        expect(result).toBe(false);
+      });
+
+      it('local fragment-only URL', () => {
+        location.internalPath = '/some/path';
+        anchor.href = '#some-fragment';
+        const result = service.handleAnchorClick(anchor);
+        expect(service.go).toHaveBeenCalledWith('/some/path#some-fragment');
         expect(result).toBe(false);
       });
 

@@ -24,8 +24,6 @@ The compiler also has some major limitations in this mode:
 
 In many cases, these things end up as type `any`, which can cause subsequent parts of the expression to go unchecked.
 
-
-
 ### Full mode
 
 If the `fullTemplateTypeCheck` flag is set to `true`, Angular is more aggressive in its type-checking within templates.
@@ -41,6 +39,12 @@ The following still have type `any`.
 * The `$event` object.
 * Safe navigation expressions.
 
+<div class="alert is-important">
+
+The `fullTemplateTypeCheck` flag has been deprecated in Angular 13. The `strictTemplates` family of compiler options should be used instead.
+
+</div>
+
 
 {@a strict-mode}
 
@@ -54,7 +58,7 @@ Note that strict mode is only available if using Ivy.
 In addition to the full mode behavior, Angular does the following:
 
 * Verifies that component/directive bindings are assignable to their `@Input()`s.
-* Obeys TypeScript's `strictNullChecks` flag when validating the above.
+* Obeys TypeScript's `strictNullChecks` flag when validating the preceding mode.
 * Infers the correct type of components/directives, including generics.
 * Infers template context types where configured (for example, allowing correct type-checking of `NgFor`).
 * Infers the correct type of `$event` in component/directive, DOM, and animation event bindings.
@@ -108,11 +112,11 @@ There can also be false positives when the typings of an Angular library are eit
 In case of a false positive like these, there are a few options:
 
 * Use the [`$any()` type-cast function](guide/template-expression-operators#any-type-cast-function) in certain contexts to opt out of type-checking for a part of the expression.
-* You can disable strict checks entirely by setting `strictTemplates: false` in the application's TypeScript configuration file, `tsconfig.json`.
-* You can disable certain type-checking operations individually, while maintaining strictness in other aspects, by setting a _strictness flag_ to `false`.
-* If you want to use `strictTemplates` and `strictNullChecks` together, you can opt out of strict null type checking specifically for input bindings using `strictNullInputTypes`.
+* Disable strict checks entirely by setting `strictTemplates: false` in the application's TypeScript configuration file, `tsconfig.json`.
+* Disable certain type-checking operations individually, while maintaining strictness in other aspects, by setting a _strictness flag_ to `false`.
+* If you want to use `strictTemplates` and `strictNullChecks` together, opt out of strict null type checking specifically for input bindings using `strictNullInputTypes`.
 
-Unless otherwise noted, each option below is set to the value for `strictTemplates` (`true` when `strictTemplates` is `true` and vice versa).
+Unless otherwise noted, each following option is set to the value for `strictTemplates` (`true` when `strictTemplates` is `true` and conversely, the other way around).
 <table>
   <thead>
     <tr>
@@ -135,7 +139,7 @@ Unless otherwise noted, each option below is set to the value for `strictTemplat
     </tr>
     <tr>
       <td><code>strictAttributeTypes</code></td>
-      <td>Whether to check <code>@Input()</code> bindings that are made using text attributes (for example, <code>&lt;mat-tab label="Step 1"&gt;</code> vs <code>&lt;mat-tab [label]="'Step 1'"&gt;</code>).</td>
+      <td>Whether to check <code>@Input()</code> bindings that are made using text attributes. For example, <code>&lt;input matInput disabled="true"&gt;</code> (setting the <code>disabled</code> property to the string <code>'true'</code>) vs <code>&lt;input matInput [disabled]="true"&gt;</code> (setting the <code>disabled</code> property to the boolean <code>true</code>).</td>
     </tr>
     <tr>
       <td><code>strictSafeNavigationTypes</code></td>
@@ -164,7 +168,7 @@ Unless otherwise noted, each option below is set to the value for `strictTemplat
   </tbody>
 </table>
 
-If you still have issues after troubleshooting with these flags, you can fall back to full mode by disabling `strictTemplates`.
+If you still have issues after troubleshooting with these flags, fall back to full mode by disabling `strictTemplates`.
 
 If that doesn't work, an option of last resort is to turn off full mode entirely with `fullTemplateTypeCheck: false`.
 
@@ -196,7 +200,7 @@ The `AppComponent` template uses this component as follows:
 ```ts
 @Component({
   selector: 'app-root',
-  template: '<user-detail [user]="selectedUser" />',
+  template: '<user-detail [user]="selectedUser"></user-detail>',
 })
 export class AppComponent {
   selectedUser: User | null = null;
@@ -207,12 +211,12 @@ Here, during type checking of the template for `AppComponent`, the `[user]="sele
 Therefore, Angular assigns the `selectedUser` property to `UserDetailComponent.user`, which would result in an error if their types were incompatible.
 TypeScript checks the assignment according to its type system, obeying flags such as `strictNullChecks` as they are configured in the application.
 
-You can avoid run-time type errors by providing more specific in-template type requirements to the template type checker. Make the input type requirements for your own directives as specific as possible by providing template-guard functions in the directive definition. See [Improving template type checking for custom directives](guide/structural-directives#directive-type-checks), and [Input setter coercion](#input-setter-coercion) in this guide.
+Avoid run-time type errors by providing more specific in-template type requirements to the template type checker. Make the input type requirements for your own directives as specific as possible by providing template-guard functions in the directive definition. See [Improving template type checking for custom directives](guide/structural-directives#directive-type-checks) in this guide.
 
 
 ### Strict null checks
 
-When you enable `strictTemplates` and the TypeScript flag `strictNullChecks`, typecheck errors may occur for certain situations that may not easily be avoided. For example:
+When you enable `strictTemplates` and the TypeScript flag `strictNullChecks`, typecheck errors might occur for certain situations that might not easily be avoided. For example:
 
   * A nullable value that is bound to a directive from a library which did not have `strictNullChecks` enabled.
 
@@ -224,14 +228,14 @@ When you enable `strictTemplates` and the TypeScript flag `strictNullChecks`, ty
 
   The `async` pipe currently assumes that the Observable it subscribes to can be asynchronous, which means that it's possible that there is no value available yet.
   In that case, it still has to return something&mdash;which is `null`.
-  In other words, the return type of the `async` pipe includes `null`, which may result in errors in situations where the Observable is known to emit a non-nullable value synchronously.
+  In other words, the return type of the `async` pipe includes `null`, which might result in errors in situations where the Observable is known to emit a non-nullable value synchronously.
 
-There are two potential workarounds to the above issues:
+There are two potential workarounds to the preceding issues:
 
-  1. In the template, include the non-null assertion operator `!` at the end of a nullable expression, such as  `<user-detail [user]="user!" />`.
+  1. In the template, include the non-null assertion operator `!` at the end of a nullable expression, such as  `<user-detail [user]="user!"></user-detail>`.
 
   In this example, the compiler disregards type incompatibilities in nullability, just as in TypeScript code.
-  In the case of the `async` pipe, note that the expression needs to be wrapped in parentheses, as in `<user-detail [user]="(user$ | async)!" />`.
+  In the case of the `async` pipe, note that the expression needs to be wrapped in parentheses, as in `<user-detail [user]="(user$ | async)!"></user-detail>`.
 
   1. Disable strict null checks in Angular templates completely.
 
@@ -243,7 +247,7 @@ There are two potential workarounds to the above issues:
 
 As a library author, you can take several measures to provide an optimal experience for your users.
 First, enabling `strictNullChecks` and including `null` in an input's type, as appropriate, communicates to your consumers whether they can provide a nullable value or not.
-Additionally, it is possible to provide type hints that are specific to the template type checker. See [Improving template type checking for custom directives](guide/structural-directives#directive-type-checks), and [Input setter coercion](#input-setter-coercion) below.
+Additionally, it is possible to provide type hints that are specific to the template type checker. See [Improving template type checking for custom directives](guide/structural-directives#directive-type-checks), and [Input setter coercion](#input-setter-coercion).
 
 
 {@a input-setter-coercion}
@@ -260,7 +264,7 @@ Consider the following directive:
   selector: 'submit-button',
   template: `
     <div class="wrapper">
-      <button [disabled]="disabled">Submit</button>'
+      <button [disabled]="disabled">Submit</button>
     </div>
   `,
 })
@@ -299,9 +303,9 @@ set disabled(value: boolean) {
 ```
 
 It would be ideal to change the type of `value` here, from `boolean` to `boolean|''`, to match the set of values which are actually accepted by the setter.
-TypeScript requires that both the getter and setter have the same type, so if the getter should return a `boolean` then the setter is stuck with the narrower type.
+TypeScript prior to version 4.3 requires that both the getter and setter have the same type, so if the getter should return a `boolean` then the setter is stuck with the narrower type.
 
-If the consumer has Angular's strictest type checking for templates enabled, this creates a problem: the empty string `''` is not actually assignable to the `disabled` field, which will create a type error when the attribute form is used.
+If the consumer has Angular's strictest type checking for templates enabled, this creates a problem: the empty string `''` is not actually assignable to the `disabled` field, which creates a type error when the attribute form is used.
 
 As a workaround for this problem, Angular supports checking a wider, more permissive type for `@Input()` than is declared for the input field itself. Enable this by adding a static property with the `ngAcceptInputType_` prefix to the component class:
 
@@ -321,6 +325,12 @@ class SubmitButton {
   static ngAcceptInputType_disabled: boolean|'';
 }
 ```
+
+<div class="alert is-important">
+
+Since TypeScript 4.3, the setter could have been declared to accept `boolean|''` as type, making the input setter coercion field obsolete. As such, input setters coercion fields have been deprecated. 
+
+</div>
 
 This field does not need to have a value. Its existence communicates to the Angular type checker that the `disabled` input should be considered as accepting bindings that match the type `boolean|''`. The suffix should be the `@Input` _field_ name.
 

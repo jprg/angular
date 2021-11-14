@@ -10,7 +10,7 @@
 import {AotCompiler, AotCompilerOptions, core, createAotCompiler, FormattedMessageChain, GeneratedFile, getMissingNgModuleMetadataErrorData, getParseErrors, isFormattedError, isSyntaxError, MessageBundle, NgAnalyzedFileWithInjectables, NgAnalyzedModules, ParseSourceSpan, PartialModule} from '@angular/compiler';
 import * as fs from 'fs';
 import * as path from 'path';
-import * as ts from 'typescript';
+import ts from 'typescript';
 
 import {translateDiagnostics} from '../diagnostics/translate_diagnostics';
 import {createBundleIndexHost, MetadataCollector} from '../metadata';
@@ -21,7 +21,7 @@ import {verifySupportedTypeScriptVersion} from '../typescript_support';
 
 import {CompilerHost, CompilerOptions, CustomTransformers, DEFAULT_ERROR_CODE, Diagnostic, DiagnosticMessageChain, EmitFlags, LazyRoute, LibrarySummary, Program, SOURCE, TsEmitCallback, TsMergeEmitResultsCallback} from './api';
 import {CodeGenerator, getOriginalReferences, TsCompilerAotCompilerTypeCheckHostAdapter} from './compiler_host';
-import {getDownlevelDecoratorsTransform} from './downlevel_decorators_transform';
+import {getDownlevelDecoratorsTransform} from './downlevel_decorators_transform/index';
 import {i18nExtract} from './i18n';
 import {getInlineResourcesTransformFactory, InlineResourcesMetadataTransformer} from './inline_resources';
 import {getExpressionLoweringTransformFactory, LowerMetadataTransform} from './lower_expressions';
@@ -38,6 +38,12 @@ import {createMessageDiagnostic, DTS, GENERATED_FILES, isInRootDir, ngToTsDiagno
  */
 const MAX_FILE_COUNT_FOR_SINGLE_FILE_EMIT = 20;
 
+/** Error message to show when attempting to build View Engine. */
+const VE_DISABLED_MESSAGE = `
+This compilation is using the View Engine compiler which is no longer supported by the Angular team
+and is being removed. Please upgrade to the Ivy compiler by switching to \`NgtscProgram\`. See
+https://angular.io/guide/ivy for more information.
+`.trim().split('\n').join(' ');
 
 /**
  * Fields to lower within metadata in render2 mode.
@@ -110,6 +116,10 @@ class AngularCompilerProgram implements Program {
   constructor(
       rootNames: ReadonlyArray<string>, private options: CompilerOptions,
       private host: CompilerHost, oldProgram?: Program) {
+    if (true as boolean) {
+      throw new Error(VE_DISABLED_MESSAGE);
+    }
+
     this.rootNames = [...rootNames];
 
     if (!options.disableTypeScriptVersionCheck) {
@@ -250,9 +260,7 @@ class AngularCompilerProgram implements Program {
   }
 
   listLazyRoutes(route?: string): LazyRoute[] {
-    // Note: Don't analyzedModules if a route is given
-    // to be fast enough.
-    return this.compiler.listLazyRoutes(route, route ? undefined : this.analyzedModules);
+    return [];
   }
 
   emit(parameters: {

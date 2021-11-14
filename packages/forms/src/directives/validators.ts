@@ -12,7 +12,25 @@ import {Observable} from 'rxjs';
 import {AbstractControl} from '../model';
 import {emailValidator, maxLengthValidator, maxValidator, minLengthValidator, minValidator, NG_VALIDATORS, nullValidator, patternValidator, requiredTrueValidator, requiredValidator} from '../validators';
 
+/**
+ * Method that updates string to integer if not already a number
+ *
+ * @param value The value to convert to integer
+ * @returns value of parameter in number or integer.
+ */
+function toInteger(value: string|number): number {
+  return typeof value === 'number' ? value : parseInt(value, 10);
+}
 
+/**
+ * Method that ensures that provided value is a float (and converts it to float if needed).
+ *
+ * @param value The value to convert to float
+ * @returns value of parameter in number or float.
+ */
+function toFloat(value: string|number): number {
+  return typeof value === 'number' ? value : parseFloat(value);
+}
 /**
  * @description
  * Defines the map of errors returned from failed validation checks.
@@ -114,7 +132,7 @@ abstract class AbstractValidatorDirective implements Validator {
   handleChanges(changes: SimpleChanges): void {
     if (this.inputName in changes) {
       const input = this.normalizeInput(changes[this.inputName].currentValue);
-      this._validator = this.createValidator(input);
+      this._validator = this.enabled() ? this.createValidator(input) : nullValidator;
       if (this._onChange) {
         this._onChange();
       }
@@ -129,6 +147,18 @@ abstract class AbstractValidatorDirective implements Validator {
   /** @nodoc */
   registerOnValidatorChange(fn: () => void): void {
     this._onChange = fn;
+  }
+
+  /**
+   * @description
+   * Determines whether this validator is active or not. Base class implementation
+   * checks whether an input is defined (if the value is different from `null` and `undefined`).
+   * Validator classes that extend this base class can override this function with the logic
+   * specific to a particular validator directive.
+   */
+  enabled(): boolean {
+    const inputValue = (this as unknown as {[key: string]: unknown})[this.inputName];
+    return inputValue != null /* both `null` and `undefined` */;
   }
 }
 
@@ -167,20 +197,20 @@ export const MAX_VALIDATOR: StaticProvider = {
   selector:
       'input[type=number][max][formControlName],input[type=number][max][formControl],input[type=number][max][ngModel]',
   providers: [MAX_VALIDATOR],
-  host: {'[attr.max]': 'max ?? null'}
+  host: {'[attr.max]': 'enabled() ? max : null'}
 })
 export class MaxValidator extends AbstractValidatorDirective implements OnChanges {
   /**
    * @description
    * Tracks changes to the max bound to this directive.
    */
-  @Input() max!: string|number;
+  @Input() max!: string|number|null;
   /** @internal */
-  inputName = 'max';
+  override inputName = 'max';
   /** @internal */
-  normalizeInput = (input: string): number => parseFloat(input);
+  override normalizeInput = (input: string|number): number => toFloat(input);
   /** @internal */
-  createValidator = (max: number): ValidatorFn => maxValidator(max);
+  override createValidator = (max: number): ValidatorFn => maxValidator(max);
   /**
    * Declare `ngOnChanges` lifecycle hook at the main directive level (vs keeping it in base class)
    * to avoid differences in handling inheritance of lifecycle hooks between Ivy and ViewEngine in
@@ -227,20 +257,20 @@ export const MIN_VALIDATOR: StaticProvider = {
   selector:
       'input[type=number][min][formControlName],input[type=number][min][formControl],input[type=number][min][ngModel]',
   providers: [MIN_VALIDATOR],
-  host: {'[attr.min]': 'min ?? null'}
+  host: {'[attr.min]': 'enabled() ? min : null'}
 })
 export class MinValidator extends AbstractValidatorDirective implements OnChanges {
   /**
    * @description
    * Tracks changes to the min bound to this directive.
    */
-  @Input() min!: string|number;
+  @Input() min!: string|number|null;
   /** @internal */
-  inputName = 'min';
+  override inputName = 'min';
   /** @internal */
-  normalizeInput = (input: string): number => parseFloat(input);
+  override normalizeInput = (input: string|number): number => toFloat(input);
   /** @internal */
-  createValidator = (min: number): ValidatorFn => minValidator(min);
+  override createValidator = (min: number): ValidatorFn => minValidator(min);
   /**
    * Declare `ngOnChanges` lifecycle hook at the main directive level (vs keeping it in base class)
    * to avoid differences in handling inheritance of lifecycle hooks between Ivy and ViewEngine in
@@ -410,7 +440,7 @@ export class CheckboxRequiredValidator extends RequiredValidator {
    * Returns the validation result if enabled, otherwise null.
    * @nodoc
    */
-  validate(control: AbstractControl): ValidationErrors|null {
+  override validate(control: AbstractControl): ValidationErrors|null {
     return this.required ? requiredTrueValidator(control) : null;
   }
 }
@@ -540,47 +570,26 @@ export const MIN_LENGTH_VALIDATOR: any = {
 @Directive({
   selector: '[minlength][formControlName],[minlength][formControl],[minlength][ngModel]',
   providers: [MIN_LENGTH_VALIDATOR],
-  host: {'[attr.minlength]': 'minlength ? minlength : null'}
+  host: {'[attr.minlength]': 'enabled() ? minlength : null'}
 })
-export class MinLengthValidator implements Validator, OnChanges {
-  private _validator: ValidatorFn = nullValidator;
-  private _onChange?: () => void;
-
+export class MinLengthValidator extends AbstractValidatorDirective implements OnChanges {
   /**
    * @description
    * Tracks changes to the minimum length bound to this directive.
    */
-  @Input()
-  minlength!: string|number;  // This input is always defined, since the name matches selector.
+  @Input() minlength!: string|number|null;
+  /** @internal */
+  override inputName = 'minlength';
+
+  /** @internal */
+  override normalizeInput = (input: string|number): number => toInteger(input);
+
+  /** @internal */
+  override createValidator = (minlength: number): ValidatorFn => minLengthValidator(minlength);
 
   /** @nodoc */
   ngOnChanges(changes: SimpleChanges): void {
-    if ('minlength' in changes) {
-      this._createValidator();
-      if (this._onChange) this._onChange();
-    }
-  }
-
-  /**
-   * Method that validates whether the value meets a minimum length requirement.
-   * Returns the validation result if enabled, otherwise null.
-   * @nodoc
-   */
-  validate(control: AbstractControl): ValidationErrors|null {
-    return this.minlength == null ? null : this._validator(control);
-  }
-
-  /**
-   * Registers a callback function to call when the validator inputs change.
-   * @nodoc
-   */
-  registerOnValidatorChange(fn: () => void): void {
-    this._onChange = fn;
-  }
-
-  private _createValidator(): void {
-    this._validator = minLengthValidator(
-        typeof this.minlength === 'number' ? this.minlength : parseInt(this.minlength, 10));
+    this.handleChanges(changes);
   }
 }
 
@@ -618,46 +627,26 @@ export const MAX_LENGTH_VALIDATOR: any = {
 @Directive({
   selector: '[maxlength][formControlName],[maxlength][formControl],[maxlength][ngModel]',
   providers: [MAX_LENGTH_VALIDATOR],
-  host: {'[attr.maxlength]': 'maxlength ? maxlength : null'}
+  host: {'[attr.maxlength]': 'enabled() ? maxlength : null'}
 })
-export class MaxLengthValidator implements Validator, OnChanges {
-  private _validator: ValidatorFn = nullValidator;
-  private _onChange?: () => void;
-
+export class MaxLengthValidator extends AbstractValidatorDirective implements OnChanges {
   /**
    * @description
-   * Tracks changes to the maximum length bound to this directive.
+   * Tracks changes to the minimum length bound to this directive.
    */
-  @Input()
-  maxlength!: string|number;  // This input is always defined, since the name matches selector.
+  @Input() maxlength!: string|number|null;
+  /** @internal */
+  override inputName = 'maxlength';
+
+  /** @internal */
+  override normalizeInput = (input: string|number): number => toInteger(input);
+
+  /** @internal */
+  override createValidator = (maxlength: number): ValidatorFn => maxLengthValidator(maxlength);
 
   /** @nodoc */
   ngOnChanges(changes: SimpleChanges): void {
-    if ('maxlength' in changes) {
-      this._createValidator();
-      if (this._onChange) this._onChange();
-    }
-  }
-
-  /**
-   * Method that validates whether the value exceeds the maximum length requirement.
-   * @nodoc
-   */
-  validate(control: AbstractControl): ValidationErrors|null {
-    return this.maxlength != null ? this._validator(control) : null;
-  }
-
-  /**
-   * Registers a callback function to call when the validator inputs change.
-   * @nodoc
-   */
-  registerOnValidatorChange(fn: () => void): void {
-    this._onChange = fn;
-  }
-
-  private _createValidator(): void {
-    this._validator = maxLengthValidator(
-        typeof this.maxlength === 'number' ? this.maxlength : parseInt(this.maxlength, 10));
+    this.handleChanges(changes);
   }
 }
 

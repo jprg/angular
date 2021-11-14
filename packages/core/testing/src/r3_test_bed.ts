@@ -227,9 +227,9 @@ export class TestBedRender3 implements TestBed {
    *
    * @publicApi
    */
-  initTestEnvironment(ngModule: Type<any>|Type<any>[], platform: PlatformRef, summariesOrOptions?: {
-    teardown?: ModuleTeardownOptions
-  }|(() => any[])): void {
+  initTestEnvironment(
+      ngModule: Type<any>|Type<any>[], platform: PlatformRef,
+      summariesOrOptions?: TestEnvironmentOptions|(() => any[])): void {
     if (this.platform || this.ngModule) {
       throw new Error('Cannot set base providers because it has already been called');
     }
@@ -469,17 +469,18 @@ export class TestBedRender3 implements TestBed {
     }
   }
 
-  private shouldRethrowTeardownErrors() {
+  shouldRethrowTeardownErrors() {
     const instanceOptions = this._instanceTeardownOptions;
     const environmentOptions = TestBedRender3._environmentTeardownOptions;
 
     // If the new teardown behavior hasn't been configured, preserve the old behavior.
     if (!instanceOptions && !environmentOptions) {
-      return false;
+      return TEARDOWN_TESTING_MODULE_ON_DESTROY_DEFAULT;
     }
 
     // Otherwise use the configured behavior or default to rethrowing.
-    return instanceOptions?.rethrowErrors ?? environmentOptions?.rethrowErrors ?? true;
+    return instanceOptions?.rethrowErrors ?? environmentOptions?.rethrowErrors ??
+        this.shouldTearDownTestingModule();
   }
 
   shouldTearDownTestingModule(): boolean {

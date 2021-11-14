@@ -84,9 +84,8 @@ query --deleted_packages=integration/bazel,integration/bazel/src,integration/baz
 ################################
 # Temporary Settings for Ivy   #
 ################################
-# To determine if the compiler used should be Ivy instead of ViewEngine, one can use `--config=ivy`
-# on any bazel target. This is a temporary flag until codebase is permanently switched to Ivy.
-build --define=angular_ivy_enabled=False
+# Set the default compiler used for bazel builds to be Ivy.
+build --define=angular_ivy_enabled=True
 
 build:view-engine --define=angular_ivy_enabled=False
 build:ivy --define=angular_ivy_enabled=True
@@ -114,11 +113,11 @@ build:remote --cpu=k8
 build:remote --host_cpu=k8
 
 # Toolchain and platform related flags
-build:remote --crosstool_top=//dev-infra/bazel/remote-execution/cpp:cc_toolchain_suite
-build:remote --extra_toolchains=//dev-infra/bazel/remote-execution/cpp:cc_toolchain
-build:remote --extra_execution_platforms=//dev-infra/bazel/remote-execution:platform
-build:remote --host_platform=//dev-infra/bazel/remote-execution:platform
-build:remote --platforms=//dev-infra/bazel/remote-execution:platform
+build:remote --crosstool_top=@npm//@angular/dev-infra-private/bazel/remote-execution/cpp:cc_toolchain_suite
+build:remote --extra_toolchains=@npm//@angular/dev-infra-private/bazel/remote-execution/cpp:cc_toolchain
+build:remote --extra_execution_platforms=@npm//@angular/dev-infra-private/bazel/remote-execution:platform
+build:remote --host_platform=@npm//@angular/dev-infra-private/bazel/remote-execution:platform
+build:remote --platforms=@npm//@angular/dev-infra-private/bazel/remote-execution:platform
 
 # Remote instance and caching
 build:remote --remote_instance_name=projects/internal-200822/instances/primary_instance
@@ -142,6 +141,16 @@ test:saucelabs --flaky_test_attempts=1
 
 # --ng_perf will ask the Ivy compiler to produce performance results for each build.
 build --flag_alias=ng_perf=//packages/compiler-cli:ng_perf
+
+#####################################################################
+# Folders to ignore for integration tests (nested Bazel workspaces) #
+#####################################################################
+
+# The nested Bazel integration test workspace should not be analysed as part of
+# Skyframe, but should also not be ignored in order to be able to glob for its files.
+# TODO: Simplify this once https://github.com/bazelbuild/bazel/issues/12034 is fixed
+build --deleted_packages=integration/bazel,integration/bazel/src,integration/bazel/src/hello-world,integration/bazel/test,integration/bazel/test/e2e,integration/bazel/tools,integration/bazel/tools/angular
+query --deleted_packages=integration/bazel,integration/bazel/src,integration/bazel/src/hello-world,integration/bazel/test,integration/bazel/test/e2e,integration/bazel/tools,integration/bazel/tools/angular
 
 ####################################################
 # User bazel configuration
